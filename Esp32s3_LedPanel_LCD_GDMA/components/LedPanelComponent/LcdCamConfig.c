@@ -1,10 +1,3 @@
-/*
- * LcdCamConfig.c
- *
- *  Created on: Feb 7, 2026
- *      Author: viet.lv
- */
-
 #include "LcdCamConfig.h"
 #include "RegCustom.h"
 #include <soc/lcd_cam_reg.h>
@@ -32,13 +25,13 @@ LcdTransmitState GetLcdState(){
 	return state;
 }
 
-void LcdInit(uint32_t cmd, gpio_num_t pin[]){
+void LcdInit(gpio_num_t pin[]){
 	periph_module_enable(PERIPH_LCD_CAM_MODULE);
 	SetLcdClock();
 	MappingSignalAndGpio(pin);
 	SetLcdInterrupts();
 	DisableRgbMode();
-	ConfigureCmdPhase(cmd);
+	ConfigureCmdPhase();
 	ConfigureDummyPhase();
 	ConfigureDoutPhase();
 	ConfigureCdSignalMode();
@@ -87,7 +80,7 @@ void ConfigureDummyPhase(){
 	WriteValueToAdress(LCD_CAM_LCD_USER_REG, LCD_CAM_LCD_DUMMY_S, LCD_CAM_LCD_DUMMY_M, LCD_CAM_LCD_DUMMY_DISABLE);
 }
 
-void ConfigureCmdPhase(uint32_t cmdDeffault){
+void ConfigureCmdPhase(){
 	// Configure no CMD phase
 	WriteValueToAdress(LCD_CAM_LCD_USER_REG, LCD_CAM_LCD_CMD_S, LCD_CAM_LCD_CMD_M, LCD_CAM_LCD_CMD_DISABLE);
 }
@@ -118,7 +111,7 @@ void GpioConfig(uint32_t pin, uint32_t signal){
 	// Configure IO MUX so GPIO gpioPin[i] uses the GPIO function via GPIO matrix
 	WriteValueToAdress(IO_MUX_x_REG(pin), MCU_SEL_S, MCU_SEL_M, IO_MUX_MCU_SEL_FUNC1);
 	// Selected current flowing out
-	WriteValueToAdress(IO_MUX_x_REG(pin), FUN_DRV_S, FUN_DRV_M, IO_MUX_FUN_DRV_5MA);
+	WriteValueToAdress(IO_MUX_x_REG(pin), FUN_DRV_S, FUN_DRV_M, IO_MUX_FUN_DRV_10MA);
 }
 
 void MappingSignalAndGpio(gpio_num_t gpioPin[]){

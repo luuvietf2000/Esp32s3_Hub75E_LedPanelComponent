@@ -30,10 +30,6 @@
 #define D_PIN_BIT_M																(D_PIN_BIT_V << D_PIN_BIT_S)
 #define E_PIN_BIT_M																(E_PIN_BIT_V << E_PIN_BIT_S)
 
-#define R_COLOR_S																0
-#define G_COLOR_S																8
-#define B_COLOR_S																16
-
 #define CLK_ENABLE_BIT															1
 #define CLK_DISABLE_BIT															0
 
@@ -46,6 +42,8 @@
 
 #define TIME_UINT(x)															(1 << x)
 
+#define HUB75E_INTERNAL_AREA													MALLOC_CAP_INTERNAL
+#define HUB75E_SPIRAM_AREA														MALLOC_CAP_SPIRAM
 #include "GdmaConfig.h"
 #include <stdint.h>
 
@@ -96,6 +94,10 @@ typedef struct VectorGdmaDescriptorsNode{
 typedef struct LedPanelStyle{
 	uint32_t width;
 	uint32_t heigth;
+	float redScale;
+	float greenScale;
+	float blueScale;
+	float gamma;
 	LedPanelScan scan;
 	LedPanelRgbColor color;
 } LedPanelStyle;
@@ -110,6 +112,8 @@ typedef struct LedPanelConfig{
 // Function test
 void GdmaCheckVectorGdmaDescriptorsNode(LedPanelConfig *config);
 //--------------------------------------------------------------------------//
+
+void LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(LedPanelStyle *style, uint32_t *length, uint32_t *size);
 
 void AddSignalOutputEnableLedPanel(uint16_t *buffer, uint32_t index, uint32_t address);
 

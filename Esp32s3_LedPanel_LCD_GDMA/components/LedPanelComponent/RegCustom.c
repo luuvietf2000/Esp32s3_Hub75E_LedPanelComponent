@@ -1,10 +1,3 @@
-/*
- * RegCustom.c
- *
- *  Created on: Feb 7, 2026
- *      Author: viet.lv
- */
-
 #include "RegCustom.h"
 #include "soc/soc.h"
 #include <stdint.h>

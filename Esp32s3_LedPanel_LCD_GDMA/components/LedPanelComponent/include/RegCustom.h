@@ -1,10 +1,3 @@
-/*
- * RegCustom.h
- *
- *  Created on: Feb 7, 2026
- *      Author: viet.lv
- */
-
 #ifndef COMPONENTS_LEDPANELCOMPONENT_REGCUSTOM_H_
 #define COMPONENTS_LEDPANELCOMPONENT_REGCUSTOM_H_
 

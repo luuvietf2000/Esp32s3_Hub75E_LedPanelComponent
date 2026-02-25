@@ -1,11 +1,3 @@
-/*
- * GdmaConfig.c
- *
- *  Created on: Feb 7, 2026
- *      Author: viet.lv
- */
-
-
 #include "GdmaConfig.h"
 #include <esp_heap_caps.h>
 #include <stdint.h>

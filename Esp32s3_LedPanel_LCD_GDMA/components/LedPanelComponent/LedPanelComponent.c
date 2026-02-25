@@ -1,4 +1,3 @@
-
 #include "LedPanelComponent.h"
 #include "GdmaConfig.h"
 #include "LcdCamConfig.h"
@@ -8,6 +7,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "Hub75ELut.h"
 
 #define TAG_VECTOR_GDMA 					"Vector Gdma Descriptors Node Allocation"
 #define TAG_VECTOR_DESCRIPTIONS_NODE		"Vector Gdma Descriptors Node"
@@ -152,6 +152,9 @@ void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, uint32_t width,
 				pixelUpSide = *(buffer + row * width + column);
 				pixelDownSide = *(buffer + (row + heigth / 2) * width + column);
 				
+				pixelUpSide = Hub75ELutGetColor( pixelUpSide, color);
+				pixelDownSide = Hub75ELutGetColor( pixelDownSide, color);
+				
 				colorAfterConvert = GetLedPanelColorPixel(pixelUpSide, pixelDownSide, bit);
 				
 			
@@ -204,20 +207,26 @@ LedPanelStartTransmitState LedPanelStartTransmit(LedPanelConfig *config){
 	return LEDPANEL_START_TRANSMIT_OK;
 }
 
-LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[]){
-	uint32_t scan = config->style.scan;
-	uint32_t color = config->style.color;
-	uint32_t heigth = config->style.heigth;
-	uint32_t width = config->style.width;
-	uint32_t descriptionNodeLength =  (heigth / scan * color);
+void LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(LedPanelStyle *style, uint32_t *length, uint32_t *size){
+	*length = (style->heigth / style->scan * style->color);
+	uint32_t bufferLength = style->width + OE_CLOCK_CYCLES;
+	*size = bufferLength * sizeof(uint16_t);
+}
 
-	uint32_t bufferWidth = width + OE_CLOCK_CYCLES;
-	uint32_t bufferSize = bufferWidth * sizeof(uint16_t);
+LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[]){
+	uint32_t size, length;
+	LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(&config->style, &length, &size);
 	//-------------------------------------------------------------------------//
 	LedPanelVectorInitState vectorInitState =  VectorGdmaDescriptorsNodeInit(&config->vector,
-																			 descriptionNodeLength,
-																			 bufferSize, 
-																			 MALLOC_CAP_INTERNAL
+																			 length,
+																			 size, 
+																			 HUB75E_INTERNAL_AREA
+	);
+	
+	Hub75ELutInit(config->style.gamma,
+				  config->style.redScale,
+				  config->style.greenScale,
+				  config->style.blueScale
 	);
 	//-------------------------------------------------------------------------//
 	switch(vectorInitState){
@@ -228,9 +237,7 @@ LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[]){
 		case LEDPANEL_INIT_VECTOR_OK:
 			break;
 	}
-	uint32_t cmd = (CLK_DISABLE_BIT << CLK_PIN_S) | (LATCH_DISABLE_BIT << LATCH_PIN_S) | (OE_DISABLE_BIT << OUTPUT_ENABLE_PIN_S); 
-	
-	LcdInit(cmd, pin);
+	LcdInit(pin);
 	GdmaInitState state =  GdmaInit(&config->gdmaConfig);
 	return state == GDMA_INIT_OK ? LEDPANEL_INIT_OK : LEDPANEL_INIT_FAIL_CAUSE_FAIL_FIND_CHANNEL_AVAILABILITY_FAIL;
 }

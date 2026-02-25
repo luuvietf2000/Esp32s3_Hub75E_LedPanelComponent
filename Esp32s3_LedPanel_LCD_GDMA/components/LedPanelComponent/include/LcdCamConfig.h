@@ -1,10 +1,3 @@
-/*
- * LcdCamConfig.h
- *
- *  Created on: Feb 7, 2026
- *      Author: viet.lv
- */
-
 #ifndef COMPONENTS_LEDPANELCOMPONENT_LCDCAMCONFIG_H_
 #define COMPONENTS_LEDPANELCOMPONENT_LCDCAMCONFIG_H_
 
@@ -16,7 +9,7 @@
 #define LCD_CAM_CLK_EN_S_DEFFAULT						1
 #define LCD_CAM_LCD_CLK_SEL_DEFFAULT	  				3
 
-#define LCD_CAM_LCD_CLKM_DIV_NUM_DEFFAULT				80
+#define LCD_CAM_LCD_CLKM_DIV_NUM_DEFFAULT				16
 
 #define LCD_CAM_LCD_CLKM_DIV_A_DEFFAULT					1
 #define LCD_CAM_LCD_CLKM_DIV_B_DEFFAULT					0
@@ -47,7 +40,7 @@
 
 #define IO_MUX_x_REG(x)									(IO_MUX_GPIO0_REG + 0x4 * x)
 #define IO_MUX_MCU_SEL_FUNC1							0x1
-#define IO_MUX_FUN_DRV_5MA								0
+#define IO_MUX_FUN_DRV_10MA								1
 #define IO_MUX_FUN_WPD									1
 #define IO_MUX_FUN_WPU									1
 
@@ -121,7 +114,7 @@ typedef enum{
 void GpioConfig(uint32_t pin, uint32_t signal);
 void LcdClearIsrFlag();
 LcdTransmitState GetLcdState();
-void LcdInit(uint32_t cmd, gpio_num_t pin[]);
+void LcdInit(gpio_num_t pin[]);
 void ResetLcd_cam();
 void LcdStop();
 void LcdStart();
@@ -130,7 +123,7 @@ void ResetLcd();
 void ConfigureCdSignalMode();
 void ConfigureDoutPhase();
 void ConfigureDummyPhase();
-void ConfigureCmdPhase(uint32_t cmdDeffault);
+void ConfigureCmdPhase();
 void DisableRgbMode();
 void SetLcdInterrupts();
 void MappingSignalAndGpio(gpio_num_t gpio_pin[]);

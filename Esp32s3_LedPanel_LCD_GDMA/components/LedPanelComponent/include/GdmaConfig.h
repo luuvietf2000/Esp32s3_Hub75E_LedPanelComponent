@@ -1,10 +1,3 @@
-/*
- * GdmaConfig.h
- *
- *  Created on: Feb 7, 2026
- *      Author: viet.lv
- */
-
 #ifndef COMPONENTS_LEDPANELCOMPONENT_GDMACONFIG_H_
 #define COMPONENTS_LEDPANELCOMPONENT_GDMACONFIG_H_
 
