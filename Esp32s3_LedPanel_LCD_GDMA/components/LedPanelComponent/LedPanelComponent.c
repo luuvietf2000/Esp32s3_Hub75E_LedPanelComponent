@@ -72,19 +72,26 @@ LedPanelVectorInitState VectorGdmaDescriptorsNodeInit(VectorGdmaDescriptorsNode 
 	//SetDw2GdmaDescriptorsNode(&vector->head[length - 1], 0);
 	vector->length = length;
 	
-	uint32_t *buffer;
+	uint32_t *buffer = NULL;
+	buffer = heap_caps_malloc(bufferSize * length, MALLOC_CAP_DMA | areaMemory);
+	if(buffer == NULL){
+		VectorGdmaDescriptorsNodeClear(vector);
+		ESP_LOGE( TAG_VECTOR_GDMA, "LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL\n");
+		return LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL;
+	}
 	//-----------------------------------------------//
 	for(uint32_t i = 0; i < length; i++){
-		buffer = heap_caps_malloc(bufferSize, MALLOC_CAP_DMA | areaMemory);
+		/*buffer = heap_caps_malloc(bufferSize, MALLOC_CAP_DMA | areaMemory);
 		//-----------------------------------------------//
 		if(buffer == NULL){
 			VectorGdmaDescriptorsNodeClear(vector);
 			ESP_LOGE( TAG_VECTOR_GDMA, "LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL\n");
 			return LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL;
 		}
+		*/
 		//uint32_t isEndFrame = i != length - 1 ? SUC_EOF_DISABLE : SUC_EOF_ENABLE;
 		SetDw0GdmaDescriptorsNode(&vector->head[i], SUC_EOF_DISABLE, bufferSize,  bufferSize);
-		SetDw1GdmaDescriptorsNode(&vector->head[i], (uint32_t) buffer);
+		SetDw1GdmaDescriptorsNode(&vector->head[i], (uint32_t) buffer + i * bufferSize);
 	}
 	
 	return LEDPANEL_INIT_VECTOR_OK;
@@ -182,10 +189,14 @@ void AddSignalOutputEnableLedPanel(uint16_t *buffer, uint32_t index, uint32_t ad
 void VectorGdmaDescriptorsNodeClear(VectorGdmaDescriptorsNode *vector){
 	if(vector->head == NULL)
 		return;
+	uint32_t *buffer = (uint32_t*) vector->head[0].DW1;
+	heap_caps_free(buffer);
+	/*
 	for(uint32_t i = 0; i < vector->length; i++){
 		uint32_t *buffer = (uint32_t*) vector->head[i].DW1;
 		free(buffer);
 	}
+	*/
 	vector->length = 0;
 }
 
@@ -220,7 +231,7 @@ LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[]){
 	LedPanelVectorInitState vectorInitState =  VectorGdmaDescriptorsNodeInit(&config->vector,
 																			 length,
 																			 size, 
-																			 HUB75E_INTERNAL_AREA
+																			 MALLOC_CAP_INTERNAL
 	);
 	
 	Hub75ELutInit(config->style.gamma,

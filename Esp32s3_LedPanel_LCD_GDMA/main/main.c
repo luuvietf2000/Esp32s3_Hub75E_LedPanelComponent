@@ -29,7 +29,7 @@
 
 LedPanelConfig ledPanelConfig;
 
-uint32_t image_data[] = {
+const uint32_t image_data[] = {
 7356770,8144488,8144488,8277613,8277613,8147565,4283765,7682914,
 8010595,7682914,7682914,7876953,7876953,7683166,8277613,6443625,
 8277613,8144488,8144488,7361648,8149867,7359336,8277613,8148084,
@@ -552,8 +552,8 @@ void app_main(void)
 	ledPanelConfig.style.scan = LEDPANEL_SCAN_2_PART;
 	ledPanelConfig.style.color = LEDPANEL_RGB888;
 	ledPanelConfig.style.gamma = 2.2;
-	ledPanelConfig.style.redScale = 0.8;
-	ledPanelConfig.style.greenScale = 1;
+	ledPanelConfig.style.redScale = 1;
+	ledPanelConfig.style.greenScale = 0.8;
 	ledPanelConfig.style.blueScale= 1;
 	
 	gpio_num_t ledPanelPin[] = {
@@ -571,7 +571,11 @@ void app_main(void)
 			//*(bufferPixel + row * ledPanelConfig.style.width + column) = 0xf5c354;				
 				
 	}
+
 	LedPanelConvertFrameData(&ledPanelConfig.vector, ledPanelConfig.style.width, ledPanelConfig.style.heigth, ledPanelConfig.style.color, bufferPixel);
+	heap_caps_print_heap_info(MALLOC_CAP_INTERNAL);
+	heap_caps_print_heap_info(MALLOC_CAP_DMA);
+	//heap_caps_print_heap_info(MALLOC_CAP_SPIRAM);
 	GdmaCheckVectorGdmaDescriptorsNode(&ledPanelConfig);
 	LedPanelStartTransmit(&ledPanelConfig);
     while (true) {
