@@ -190,13 +190,10 @@ void VectorGdmaDescriptorsNodeClear(VectorGdmaDescriptorsNode *vector){
 	if(vector->head == NULL)
 		return;
 	uint32_t *buffer = (uint32_t*) vector->head[0].DW1;
+	if(buffer == NULL)
+		return;
+	heap_caps_free(vector->head);
 	heap_caps_free(buffer);
-	/*
-	for(uint32_t i = 0; i < vector->length; i++){
-		uint32_t *buffer = (uint32_t*) vector->head[i].DW1;
-		free(buffer);
-	}
-	*/
 	vector->length = 0;
 }
 
