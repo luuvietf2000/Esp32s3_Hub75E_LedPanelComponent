@@ -45,6 +45,10 @@ GdmaInitState GdmaInit(GdmaConfig *config){
 	return GDMA_INIT_OK;
 }
 
+void DisableGmdaTransmit(uint32_t channel){
+	WriteValueToAdress(GDMA_OUT_LINK_CHn_REG(channel), GDMA_OUTLINK_STOP_CH0_S, GDMA_OUTLINK_STOP_CH0_M, GDMA_OUTLINK_START_CHn_IS_STOP);
+}
+
 void EnableGmdaTransmit(uint32_t channel){
 	//  Enable GDMA’s transmit channel for data transfer
 	WriteValueToAdress(GDMA_OUT_LINK_CHn_REG(channel), GDMA_OUTLINK_START_CH0_S, GDMA_OUTLINK_START_CH0_M, GDMA_OUTLINK_START_CHn_IS_START);

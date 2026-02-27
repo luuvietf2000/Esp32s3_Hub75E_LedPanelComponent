@@ -8,37 +8,39 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "Hub75ELut.h"
+#include "sys/unistd.h"
 
-#define TAG_VECTOR_GDMA 					"Vector Gdma Descriptors Node Allocation"
-#define TAG_VECTOR_DESCRIPTIONS_NODE		"Vector Gdma Descriptors Node"
-#define TAG_CHECK_VECTOR_GMDA				"Vector Gdma Check is Valid"
-#define VECTOR_GDMA_VALID_CONTENT			"Valid"
-#define VECTOR_GDMA_INVALID_CONTENT			"Invalid"
-#define VECTOR_GDMA_VALID_VALUE				1
-#define VECTOR_GDMA_INVALID_VALUE			0
-#define GDMA_DESCRIPTORS_NODE_VALUE			"Gdma Descriptors Node"
-#define START_INTERNAL_DMA_RAM				0x3FC88000
-#define END_INTERNAL_DMA_RAM				0x3FCFFFFF
+#define TAG_VECTOR_GDMA 												"Vector Gdma Descriptors Node Allocation"
+#define TAG_VECTOR_DESCRIPTIONS_NODE									"Vector Gdma Descriptors Node"
+#define TAG_CHECK_VECTOR_GMDA											"Vector Gdma Check is Valid"
+#define VECTOR_GDMA_VALID_CONTENT										"Valid"
+#define VECTOR_GDMA_INVALID_CONTENT										"Invalid"
+#define VECTOR_GDMA_VALID_VALUE											1
+#define VECTOR_GDMA_INVALID_VALUE										0
+#define GDMA_DESCRIPTORS_NODE_VALUE										"Gdma Descriptors Node"
+#define START_INTERNAL_DMA_RAM											0x3FC88000
+#define END_INTERNAL_DMA_RAM											0x3FCFFFFF
 
-#define START_EXTERNAL_DMA_RAM				0x3C000000
-#define END_EXTERNAL_DMA_RAM				0x3DFFFFFF
-
+#define START_EXTERNAL_DMA_RAM											0x3C000000
+#define END_EXTERNAL_DMA_RAM											0x3DFFFFFF
+#define QUEUE_VECTOR_DESCRIPTIORS_ERROR									"Queue Vector Gdma Descriptors Node Error"
+#define QUEUE_VECTOR_DESCRIPTIORS_ERROR_CONTENT							"Queue Vector Gdma Descriptors Node Allow Error"
 //--------------------------------------------------------------------------//
 // Function test
-void GdmaCheckVectorGdmaDescriptorsNode(LedPanelConfig *config){
+void GdmaCheckVectorGdmaDescriptorsNode(VectorGdmaDescriptorsNode *vector){
 	uint32_t isPass = VECTOR_GDMA_VALID_VALUE;
 	ESP_LOGI(GDMA_DESCRIPTORS_NODE_VALUE, "Address Dw0 = 0x%08x, Dw0 = 0x%08x, Dw1 = 0x%08x, Dw2 = 0x%08x\n",
-		(unsigned int) &config->vector.head[0].DW0,
-		(unsigned int) config->vector.head[0].DW0,
-		(unsigned int) config->vector.head[0].DW1,
-		(unsigned int) config->vector.head[0].DW2
+		(unsigned int) &vector->head[0].DW0,
+		(unsigned int) vector->head[0].DW0,
+		(unsigned int) vector->head[0].DW1,
+		(unsigned int) vector->head[0].DW2
 	);
-	for(uint32_t i = 1; i < config->vector.length; i++){
-		if(config->vector.head[i - 1].DW2 != (uint32_t) &config->vector.head[i].DW0)
+	for(uint32_t i = 1; i < vector->length; i++){
+		if(vector->head[i - 1].DW2 != (uint32_t) &vector->head[i].DW0)
 			isPass = VECTOR_GDMA_INVALID_VALUE;
 		
-		if(START_INTERNAL_DMA_RAM > config->vector.head[i].DW1 		||
-		 	config->vector.head[i].DW1 > END_INTERNAL_DMA_RAM  		
+		if(START_INTERNAL_DMA_RAM > vector->head[i].DW1 		||
+		 	vector->head[i].DW1 > END_INTERNAL_DMA_RAM  		
 		 	/*||
 			START_EXTERNAL_DMA_RAM > config->vector.head[i].DW1 	||
 			config->vector.head[i].DW1 > END_EXTERNAL_DMA_RAM
@@ -47,16 +49,104 @@ void GdmaCheckVectorGdmaDescriptorsNode(LedPanelConfig *config){
 			isPass = VECTOR_GDMA_INVALID_VALUE;
 		
 		ESP_LOGI(GDMA_DESCRIPTORS_NODE_VALUE, "Address Dw0 = 0x%08x, Dw0 = 0x%08x, Dw1 = 0x%08x, Dw2 = 0x%08x\n", 
-			(unsigned int) &config->vector.head[i].DW0,
-			(unsigned int) config->vector.head[i].DW0,
-			(unsigned int) config->vector.head[i].DW1,
-			(unsigned int) config->vector.head[i].DW2
+			(unsigned int) &vector->head[i].DW0,
+			(unsigned int) vector->head[i].DW0,
+			(unsigned int) vector->head[i].DW1,
+			(unsigned int) vector->head[i].DW2
 		);
 	}
 	ESP_LOGI(TAG_CHECK_VECTOR_GMDA, "Vector is %s\n", (isPass == VECTOR_GDMA_VALID_VALUE ? VECTOR_GDMA_VALID_CONTENT : VECTOR_GDMA_INVALID_CONTENT));
 }
 
 //--------------------------------------------------------------------------//
+
+void LedPanelRemoveBuffer(){
+	for(uint32_t i = 0; i < queueVectorGdmaDescriptorsNode->size; i++)
+		VectorGdmaDescriptorsNodeClear(queueVectorGdmaDescriptorsNode->head + i);
+	queueVectorGdmaDescriptorsNode->size = 0;
+}
+
+LedPanelTransmitState GetLedpanelState(LedPanelConfig *config){
+	LcdTransmitState lcdState = GetLcdState();
+	GdmaChannelState gmdaChannelState = GdmaChannelIsIdle(&config->gdmaConfig);
+	if(lcdState == LCD_TRANSMIT_WORKING && gmdaChannelState == GDMA_CHANNEL_WORKING)
+		return LEDPANEL_IDLE;
+	return LEDPANEL_TRANSMIT_OK;
+}
+
+void LedPanelResetHW(LedPanelConfig *config){
+	queueVectorGdmaDescriptorsNode->rear = queueVectorGdmaDescriptorsNode->front = -1;
+	DisableGmdaTransmit(config->gdmaConfig.channel);
+	ResetGdmaChanelAndFifoPointer(config->gdmaConfig.channel);
+	LcdStop();
+	ResetLcdCtrlAndTxFIFO();
+}
+
+QueueVectorGdmaDescriptorsNodePushState QueueVectorGdmaDescriptorsNodePush(LedPanelConfig *config, uint32_t *buffer){
+	if(CheckQueueVectorGdmaDescriptorsNodeState() == QUEUE_VECTOR_DESCRIPTIORS_FULL)
+		return QUEUE_VECTOR_DESCRIPTIORS_PUSH_FAIL_CAUSE_FULL;
+	if(GetLedpanelState(config) == LEDPANEL_TRANSMIT_OK && queueVectorGdmaDescriptorsNode->size < 2)
+		return QUEUE_VECTOR_DESCRIPTIORS_PUSH_FAIL_CAUSE_QUEUE_SIZE_ONE_AND_LEDPANEL_USING;
+	
+	int nextIndex = NextIndexQueueVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->front);
+	LedPanelConvertFrameData(queueVectorGdmaDescriptorsNode->head + nextIndex, &config->style, buffer);
+	queueVectorGdmaDescriptorsNode->front = nextIndex;
+	return QUEUE_VECTOR_DESCRIPTIORS_PUSH_OK;
+}
+
+LedPanelStartTransmitState RequestNextVectorGdmaDescriptorsNode(LedPanelConfig *config){
+	QueueVectorGdmaDescriptorsNodeState queueState = CheckQueueVectorGdmaDescriptorsNodeState();
+	if(queueVectorGdmaDescriptorsNode->size != 1 && queueState == QUEUE_VECTOR_DESCRIPTIORS_EMPTY)
+		return LEDPANEL_START_TRANSMIT_FAIL_CAUSE_NO_GDMA_DESCRIPTORS_NODE_NEXT;
+	int indexNext = NextIndexQueueVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->rear);
+	LedPanelStartTransmitState state = LedPanelStartTransmit(config, queueVectorGdmaDescriptorsNode->head + indexNext);
+	queueVectorGdmaDescriptorsNode->rear = indexNext;
+	return state;
+}
+
+QueueVectorGdmaDescriptorsNodeState CheckQueueVectorGdmaDescriptorsNodeState(){
+	if(queueVectorGdmaDescriptorsNode->rear == queueVectorGdmaDescriptorsNode->front)
+		return QUEUE_VECTOR_DESCRIPTIORS_EMPTY;
+	else if(NextIndexQueueVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->front) == queueVectorGdmaDescriptorsNode->rear)
+		return QUEUE_VECTOR_DESCRIPTIORS_FULL;
+	else 
+		return QUEUE_VECTOR_DESCRIPTIORS_NORMAL;
+}
+
+int NextIndexQueueVectorGdmaDescriptorsNode(int index){
+	return (index + 1) % queueVectorGdmaDescriptorsNode->size;
+}
+
+QueueVectorGdmaDescriptorsNodeInitState QueueVectorGdmaDescriptorsNodeInit(LedPanelStyle *style, uint32_t size){
+	queueVectorGdmaDescriptorsNode = heap_caps_malloc( sizeof(QueueVectorGdmaDescriptorsNode) * size, MALLOC_CAP_8BIT);
+	if(queueVectorGdmaDescriptorsNode == NULL){
+		ESP_LOGE(QUEUE_VECTOR_DESCRIPTIORS_ERROR, QUEUE_VECTOR_DESCRIPTIORS_ERROR_CONTENT);
+		return QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_QUEUE_FAIL;
+	}
+	queueVectorGdmaDescriptorsNode->size = size;
+	queueVectorGdmaDescriptorsNode->rear = queueVectorGdmaDescriptorsNode->front = -1;
+	
+	for(uint32_t i = 0; i < size; i++){
+		uint32_t size, length;
+		LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(style, &length, &size);
+		//-------------------------------------------------------------------------//
+		LedPanelVectorInitState vectorInitState =  VectorGdmaDescriptorsNodeInit(queueVectorGdmaDescriptorsNode->head + i,
+																				 length,
+																				 size, 
+																				 HUB75E_INTERNAL_AREA
+		);
+		switch(vectorInitState){
+			case LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_FAIL:
+				return QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_FAIL;
+			case LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL:
+				return QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL;
+			case LEDPANEL_INIT_VECTOR_OK:
+				break;
+		}
+	}
+	
+	return QUEUE_VECTOR_DESCRIPTIORS_INIT_OK;
+}
 
 LedPanelVectorInitState VectorGdmaDescriptorsNodeInit(VectorGdmaDescriptorsNode *vector, uint32_t length, uint32_t bufferSize, uint32_t areaMemory){	
 	vector->head = heap_caps_malloc(sizeof(GdmaDescriptorsNode) * length, MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT);
@@ -81,14 +171,6 @@ LedPanelVectorInitState VectorGdmaDescriptorsNodeInit(VectorGdmaDescriptorsNode 
 	}
 	//-----------------------------------------------//
 	for(uint32_t i = 0; i < length; i++){
-		/*buffer = heap_caps_malloc(bufferSize, MALLOC_CAP_DMA | areaMemory);
-		//-----------------------------------------------//
-		if(buffer == NULL){
-			VectorGdmaDescriptorsNodeClear(vector);
-			ESP_LOGE( TAG_VECTOR_GDMA, "LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL\n");
-			return LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL;
-		}
-		*/
 		//uint32_t isEndFrame = i != length - 1 ? SUC_EOF_DISABLE : SUC_EOF_ENABLE;
 		SetDw0GdmaDescriptorsNode(&vector->head[i], SUC_EOF_DISABLE, bufferSize,  bufferSize);
 		SetDw1GdmaDescriptorsNode(&vector->head[i], (uint32_t) buffer + i * bufferSize);
@@ -126,7 +208,7 @@ uint32_t GetLedPanelColorPixel(uint32_t pixelUp, uint32_t pixelDown, uint32_t bi
 	return r1  | g1 | b1 | r2 | g2 | b2;
 }
 
-void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, uint32_t width, uint32_t heigth, LedPanelRgbColor color, uint32_t *buffer){
+void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *style, uint32_t *buffer){
 	uint32_t pixelUpSide, pixelDownSide;
 	uint32_t colorAfterConvert, addressAfterConvert;
 	colorAfterConvert = addressAfterConvert = 0;
@@ -135,6 +217,9 @@ void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, uint32_t width,
 	uint32_t beforRowAddress;
 	uint32_t bitColor = 0;
 	uint32_t beforBitColor = 0;
+	uint32_t width = style->width;
+	uint32_t heigth = style->heigth;
+	uint32_t color = style->color;
 	
 	for(uint16_t bit = 0; bit < color; bit++){
 		for(uint16_t row = 0; row < heigth / 2; row++){
@@ -197,16 +282,21 @@ void VectorGdmaDescriptorsNodeClear(VectorGdmaDescriptorsNode *vector){
 	vector->length = 0;
 }
 
-LedPanelStartTransmitState LedPanelStartTransmit(LedPanelConfig *config){
+LedPanelStartTransmitState LedPanelStartTransmit(LedPanelConfig *config, VectorGdmaDescriptorsNode *vector){
 	GdmaChannelState gmdaChannelState = GdmaChannelIsIdle(&config->gdmaConfig);
-	if(gmdaChannelState == GDMA_CHANNEL_WORKING)
-		return LEDPANEL_START_TRANSMIT_FAIL_CAUSE_GDMA_CHANNEL_IS_WORKING;
-	GdmaTransmit(&config->gdmaConfig, (uint32_t) &config->vector.head->DW0);
+	if(gmdaChannelState == GDMA_CHANNEL_WORKING){
+		DisableGmdaTransmit(config->gdmaConfig.channel);
+		ResetGdmaChanelAndFifoPointer(config->gdmaConfig.channel);
+	}
+		
+	GdmaTransmit(&config->gdmaConfig, (uint32_t) &vector->head->DW0);
 	//GdmaClearIsrChannel(&config->gdmaConfig);
 	
 	LcdTransmitState lcdState = GetLcdState();
-	if(lcdState == LCD_TRANSMIT_WORKING)
-		return LEDPANEL_START_TRANSMIT_FAIL_CAUSE_LCD_TRANSMIT_IS_WORKING;	
+	if(lcdState == LCD_TRANSMIT_WORKING){
+		LcdStop();
+		ResetLcdCtrlAndTxFIFO();
+	}
 	
 	//LcdClearIsrFlag();
 		
@@ -221,31 +311,32 @@ void LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(LedPanelStyle *style, uint3
 	*size = bufferLength * sizeof(uint16_t);
 }
 
-LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[]){
-	uint32_t size, length;
-	LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(&config->style, &length, &size);
-	//-------------------------------------------------------------------------//
-	LedPanelVectorInitState vectorInitState =  VectorGdmaDescriptorsNodeInit(&config->vector,
-																			 length,
-																			 size, 
-																			 MALLOC_CAP_INTERNAL
-	);
-	
+LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[], uint32_t vectorGdmaDescriptiorsNodeSize){
+	QueueVectorGdmaDescriptorsNodeInitState queueInitState = QueueVectorGdmaDescriptorsNodeInit(&config->style, vectorGdmaDescriptiorsNodeSize);
+	switch(queueInitState){
+		case QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_FAIL:
+			return LEDPANEL_INIT_FAIL_CAUSE_QUEUE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_FAIL;
+		case QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL:
+			return LEDPANEL_INIT_FAIL_CAUSE_QUEUE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_BUFFER_FAIL;
+		case QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_QUEUE_FAIL:
+			return LEDPANEL_INIT_FAIL_CAUSE_QUEUE_ALLOCATION_FAIL;
+		case QUEUE_VECTOR_DESCRIPTIORS_INIT_OK:
+			break;
+	}
 	Hub75ELutInit(config->style.gamma,
 				  config->style.redScale,
 				  config->style.greenScale,
 				  config->style.blueScale
 	);
 	//-------------------------------------------------------------------------//
-	switch(vectorInitState){
-		case LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_FAIL:
-			return LEDPANEL_INIT_FAIL_CAUSE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_FAIL;
-		case LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL:
-			return LEDPANEL_INIT_FAIL_CAUSE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_BUFFER_FAIL;
-		case LEDPANEL_INIT_VECTOR_OK:
-			break;
-	}
+	
 	LcdInit(pin);
-	GdmaInitState state =  GdmaInit(&config->gdmaConfig);
-	return state == GDMA_INIT_OK ? LEDPANEL_INIT_OK : LEDPANEL_INIT_FAIL_CAUSE_FAIL_FIND_CHANNEL_AVAILABILITY_FAIL;
+	GdmaInitState gdmaInitstate =  GdmaInit(&config->gdmaConfig);
+	if(gdmaInitstate == GDMA_INIT_FAIL_CAUSE_GDMA_CHANNEL_FIND_AVAILABILITY_FAIL)
+		return LEDPANEL_INIT_FAIL_CAUSE_FIND_CHANNEL_AVAILABILITY_FAIL;
+	
+	GdmaCheckVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->head);
+	GdmaCheckVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->head + 1);
+	
+	return LEDPANEL_INIT_OK;
 }

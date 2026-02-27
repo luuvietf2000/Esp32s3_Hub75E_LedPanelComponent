@@ -73,7 +73,7 @@
 #define LCD_CAM_LCD_CK_OUT_EDGE_IS_FRIST_HALF_HIGH		0x1
 
 typedef enum{
-	LCD_TRANSMIT_IDEL,
+	LCD_TRANSMIT_IDLE,
 	LCD_TRANSMIT_WORKING
 }LcdTransmitState;
 
@@ -115,11 +115,10 @@ void GpioConfig(uint32_t pin, uint32_t signal);
 void LcdClearIsrFlag();
 LcdTransmitState GetLcdState();
 void LcdInit(gpio_num_t pin[]);
-void ResetLcd_cam();
 void LcdStop();
 void LcdStart();
 void UpdateLdcRegisters();
-void ResetLcd();
+void ResetLcdCtrlAndTxFIFO();
 void ConfigureCdSignalMode();
 void ConfigureDoutPhase();
 void ConfigureDummyPhase();

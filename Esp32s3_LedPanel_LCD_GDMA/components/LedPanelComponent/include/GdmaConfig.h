@@ -40,6 +40,7 @@
 
 #define GDMA_LCD_CAM									5
 #define GDMA_OUTLINK_START_CHn_IS_START					1
+#define GDMA_OUTLINK_START_CHn_IS_STOP					1
 
 #define SYSTEM_DMA_CLK_EN_IS_ENABLE						1
 #define SYSTEM_DMA_RST_IS_RESET							1
@@ -101,4 +102,6 @@ void SetAddressFristGdmaTransmit(uint32_t channel, uint32_t address);
 void ResetGdmaChanelAndFifoPointer(uint32_t channel);
 
 void EnableAndResetGmdaClock();
+
+void DisableGmdaTransmit(uint32_t channel);
 #endif /* COMPONENTS_LEDPANELCOMPONENT_GDMACONFIG_H_ */

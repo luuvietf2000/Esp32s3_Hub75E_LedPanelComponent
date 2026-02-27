@@ -36,7 +36,7 @@ void LcdInit(gpio_num_t pin[]){
 	ConfigureDoutPhase();
 	ConfigureCdSignalMode();
 	UpdateLdcRegisters();
-	ResetLcd();
+	ResetLcdCtrlAndTxFIFO();
 }
 
 void LcdStop(){
@@ -49,7 +49,7 @@ void LcdStart(){
 	WriteValueToAdress(LCD_CAM_LCD_USER_REG, LCD_CAM_LCD_START_S, LCD_CAM_LCD_START_M, LCD_CAM_LCD_START_IS_START);
 }
 
-void ResetLcd(){
+void ResetLcdCtrlAndTxFIFO(){
 	// Reset TX control unit (LCD_Ctrl) and Async Tx FIFO 
 	WriteValueToAdress(LCD_CAM_LCD_USER_REG, LCD_CAM_LCD_RESET_S, LCD_CAM_LCD_RESET_M, LCD_CAM_LCD_RESET_IS_RESET);
 	WriteValueToAdress(LCD_CAM_LCD_MISC_REG, LCD_CAM_LCD_AFIFO_RESET_S, LCD_CAM_LCD_AFIFO_RESET_M, LCD_CAM_LCD_AFIFO_RESET_IS_RESET);
