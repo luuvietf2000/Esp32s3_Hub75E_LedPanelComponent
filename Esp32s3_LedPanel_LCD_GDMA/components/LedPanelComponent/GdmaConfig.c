@@ -69,6 +69,11 @@ void SetDw0GdmaDescriptorsNode(GdmaDescriptorsNode *node, SucEofDw0 endFlagIsEna
 	node->DW0 = ((DW0_OWNER_GDMA << DW0_OWNER_S) & DW0_OWNER_M)| ((endFlagIsEnable << DW0_SUC_EOF_S) & DW0_SUC_EOF_M) | (DW0_SIZE_M & (size << DW0_SIZE_S)) | (DW0_LENGTH_M & (length << DW0_LENGTH_S));
 }
 
+void SetOwnerDw0DescriptorsNode(GdmaDescriptorsNode *node, uint32_t owner){
+	uint32_t reg = node->DW0 & (~DW0_OWNER_M);
+	node->DW0 = reg & (owner << DW0_OWNER_S);
+}
+
 void SetDw1GdmaDescriptorsNode(GdmaDescriptorsNode *node, uint32_t Dw1){
 	// Modify Dw1 GdmaDescriptorsNode
 	node->DW1 = Dw1;

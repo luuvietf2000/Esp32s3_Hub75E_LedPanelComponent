@@ -17,6 +17,7 @@
 #define DW0_OWNER_V										1
 #define DW0_OWNER_M										(DW0_OWNER_V << DW0_OWNER_S)
 #define DW0_OWNER_GDMA									1
+#define DW0_OWNER_CPU									0
 
 #define DW0_SUC_EOF_S									30
 #define DW0_SUC_EOF_V									1

@@ -62,7 +62,7 @@ void GdmaCheckVectorGdmaDescriptorsNode(VectorGdmaDescriptorsNode *vector){
 
 void LedPanelRemoveBuffer(){
 	for(uint32_t i = 0; i < queueVectorGdmaDescriptorsNode->size; i++)
-		VectorGdmaDescriptorsNodeClear(queueVectorGdmaDescriptorsNode->head + i);
+		VectorGdmaDescriptorsNodeClear(&(queueVectorGdmaDescriptorsNode + i)->vector);
 	queueVectorGdmaDescriptorsNode->size = 0;
 }
 
@@ -72,6 +72,11 @@ LedPanelTransmitState GetLedpanelState(LedPanelConfig *config){
 	if(lcdState == LCD_TRANSMIT_WORKING && gmdaChannelState == GDMA_CHANNEL_WORKING)
 		return LEDPANEL_IDLE;
 	return LEDPANEL_TRANSMIT_OK;
+}
+
+void LedPanelStop(LedPanelConfig *config){
+	DisableGmdaTransmit(config->gdmaConfig.channel);
+	LcdStop();
 }
 
 void LedPanelResetHW(LedPanelConfig *config){
@@ -89,7 +94,7 @@ QueueVectorGdmaDescriptorsNodePushState QueueVectorGdmaDescriptorsNodePush(LedPa
 		return QUEUE_VECTOR_DESCRIPTIORS_PUSH_FAIL_CAUSE_QUEUE_SIZE_ONE_AND_LEDPANEL_USING;
 	
 	int nextIndex = NextIndexQueueVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->front);
-	LedPanelConvertFrameData(queueVectorGdmaDescriptorsNode->head + nextIndex, &config->style, buffer);
+	LedPanelConvertFrameData(&(queueVectorGdmaDescriptorsNode + nextIndex)->vector, &config->style, buffer);
 	queueVectorGdmaDescriptorsNode->front = nextIndex;
 	return QUEUE_VECTOR_DESCRIPTIORS_PUSH_OK;
 }
@@ -99,7 +104,7 @@ LedPanelStartTransmitState RequestNextVectorGdmaDescriptorsNode(LedPanelConfig *
 	if(queueVectorGdmaDescriptorsNode->size != 1 && queueState == QUEUE_VECTOR_DESCRIPTIORS_EMPTY)
 		return LEDPANEL_START_TRANSMIT_FAIL_CAUSE_NO_GDMA_DESCRIPTORS_NODE_NEXT;
 	int indexNext = NextIndexQueueVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->rear);
-	LedPanelStartTransmitState state = LedPanelStartTransmit(config, queueVectorGdmaDescriptorsNode->head + indexNext);
+	LedPanelStartTransmitState state = LedPanelStartTransmit(config, &((queueVectorGdmaDescriptorsNode + indexNext)->vector));
 	queueVectorGdmaDescriptorsNode->rear = indexNext;
 	return state;
 }
@@ -125,14 +130,12 @@ QueueVectorGdmaDescriptorsNodeInitState QueueVectorGdmaDescriptorsNodeInit(LedPa
 	}
 	queueVectorGdmaDescriptorsNode->size = size;
 	queueVectorGdmaDescriptorsNode->rear = queueVectorGdmaDescriptorsNode->front = -1;
-	
+	uint32_t bufferSize, vectorLength;
+	LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(style, &vectorLength, &bufferSize);
 	for(uint32_t i = 0; i < size; i++){
-		uint32_t size, length;
-		LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(style, &length, &size);
-		//-------------------------------------------------------------------------//
-		LedPanelVectorInitState vectorInitState =  VectorGdmaDescriptorsNodeInit(queueVectorGdmaDescriptorsNode->head + i,
-																				 length,
-																				 size, 
+		LedPanelVectorInitState vectorInitState =  VectorGdmaDescriptorsNodeInit(&(queueVectorGdmaDescriptorsNode + i)->vector,
+																				 vectorLength,
+																				 bufferSize, 
 																				 HUB75E_INTERNAL_AREA
 		);
 		switch(vectorInitState){
@@ -286,7 +289,7 @@ LedPanelStartTransmitState LedPanelStartTransmit(LedPanelConfig *config, VectorG
 	GdmaChannelState gmdaChannelState = GdmaChannelIsIdle(&config->gdmaConfig);
 	if(gmdaChannelState == GDMA_CHANNEL_WORKING){
 		DisableGmdaTransmit(config->gdmaConfig.channel);
-		ResetGdmaChanelAndFifoPointer(config->gdmaConfig.channel);
+		//ResetGdmaChanelAndFifoPointer(config->gdmaConfig.channel);
 	}
 		
 	GdmaTransmit(&config->gdmaConfig, (uint32_t) &vector->head->DW0);
@@ -295,7 +298,7 @@ LedPanelStartTransmitState LedPanelStartTransmit(LedPanelConfig *config, VectorG
 	LcdTransmitState lcdState = GetLcdState();
 	if(lcdState == LCD_TRANSMIT_WORKING){
 		LcdStop();
-		ResetLcdCtrlAndTxFIFO();
+		//ResetLcdCtrlAndTxFIFO();
 	}
 	
 	//LcdClearIsrFlag();
@@ -335,8 +338,8 @@ LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[], uint32_
 	if(gdmaInitstate == GDMA_INIT_FAIL_CAUSE_GDMA_CHANNEL_FIND_AVAILABILITY_FAIL)
 		return LEDPANEL_INIT_FAIL_CAUSE_FIND_CHANNEL_AVAILABILITY_FAIL;
 	
-	GdmaCheckVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->head);
-	GdmaCheckVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->head + 1);
+	//GdmaCheckVectorGdmaDescriptorsNode(&queueVectorGdmaDescriptorsNode->vector);
+	//GdmaCheckVectorGdmaDescriptorsNode(&(queueVectorGdmaDescriptorsNode + 1)->vector);
 	
 	return LEDPANEL_INIT_OK;
 }

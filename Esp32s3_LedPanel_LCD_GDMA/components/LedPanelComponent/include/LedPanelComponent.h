@@ -130,7 +130,7 @@ typedef struct LedPanelConfig{
 } LedPanelConfig;
 
 typedef struct QueueVectorGdmaDescriptorsNode{
-	VectorGdmaDescriptorsNode *head;
+	VectorGdmaDescriptorsNode vector;
 	int size;
 	int rear;
 	int front; 
@@ -144,6 +144,8 @@ void GdmaCheckVectorGdmaDescriptorsNode(VectorGdmaDescriptorsNode *vector);
 //--------------------------------------------------------------------------//
 
 void LedPanelRemoveBuffer();
+
+void LedPanelStop(LedPanelConfig *config);
 
 void LedPanelResetHW(LedPanelConfig *config);
 
