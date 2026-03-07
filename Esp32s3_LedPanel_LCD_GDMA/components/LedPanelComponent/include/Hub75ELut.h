@@ -14,11 +14,11 @@
 #define HUB75E_LUT_SCALE_MIN													0
 #define HUB75E_LUT_SCALE_MAX													1
 
-#define HUB75E_RGB_RED_MASK														0xFF0000
-#define HUB75E_RGB_GREEN_MASK													0xFF00
-#define HUB75E_RGB_BLUE_MASK													0xFF
+#define HUB75E_RGB_RED_MASK														(0xFF << R_COLOR_S)
+#define HUB75E_RGB_GREEN_MASK													(0xFF << G_COLOR_S)
+#define HUB75E_RGB_BLUE_MASK													(0xFF << B_COLOR_S)
 
-#define HUB75E_RGB_SINGLE_MASK													0xff
+#define HUB75E_RGB_SINGLE_MASK													0xFF
 #define HUB75E_RGB_COLOR_BIT_SINGLE												8
 
 typedef enum{

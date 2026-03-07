@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "RegCustom.h"
 #include "esp_log.h"
+#include "esp_private/gdma.h"
 #include "esp_private/periph_ctrl.h"
 #include "soc/gdma_reg.h"
 #include "soc/soc.h"
@@ -86,6 +87,7 @@ void SetDw2GdmaDescriptorsNode(GdmaDescriptorsNode *node, uint32_t Dw2){
 
 GdmaFindChannelState SelectedGdmaChanel(uint32_t *channel){
 	// Find channel availability 
+	/*
 	for(uint8_t i = 0; i < GDMA_CHANEL_LENGTH; i++){
 		uint32_t reg = REG_READ(GDMA_OUT_PERI_SEL_CHn_REG(i));
 		uint8_t peripheral = reg & GDMA_PERI_OUT_SEL_CH0_M;
@@ -94,6 +96,23 @@ GdmaFindChannelState SelectedGdmaChanel(uint32_t *channel){
 			ESP_LOGI(TAG_SLECTION_GDMA_CHANEL, "Selected channel %ld \n", (unsigned long) *channel);
 			return GDMA_CHANNEL_FIND_AVAILABILITY_OK; 
 		}
+	}
+	*/
+	
+	gdma_channel_handle_t dmaChan;
+
+	gdma_channel_alloc_config_t dmaCfg = {
+	    .direction = GDMA_CHANNEL_DIRECTION_TX,
+	};
+	
+	ESP_ERROR_CHECK(gdma_new_ahb_channel(&dmaCfg, &dmaChan));
+
+	int peripheral = PERIPHERAL_RESET;
+	ESP_ERROR_CHECK(gdma_get_channel_id(dmaChan, &peripheral));
+	if(peripheral != PERIPHERAL_RESET){
+		*channel = peripheral;
+		ESP_LOGI(TAG_SLECTION_GDMA_CHANEL, "Selected channel %ld \n", (unsigned long) *channel);
+		return GDMA_CHANNEL_FIND_AVAILABILITY_OK; 
 	}
 	ESP_LOGE(TAG_SLECTION_GDMA_CHANEL, "No channel availability\n");
 	return GDMA_INIT_FAIL_CAUSE_GDMA_CHANNEL_FIND_AVAILABILITY_FAIL;

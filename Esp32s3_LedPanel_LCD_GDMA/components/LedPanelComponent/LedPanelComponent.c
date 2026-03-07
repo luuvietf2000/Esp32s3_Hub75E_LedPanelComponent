@@ -3,11 +3,11 @@
 #include "LcdCamConfig.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "freertos/idf_additions.h"
 #include "soc/gpio_num.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "Hub75ELut.h"
 #include "sys/unistd.h"
 
 #define TAG_VECTOR_GDMA 												"Vector Gdma Descriptors Node Allocation"
@@ -87,7 +87,7 @@ void LedPanelResetHW(LedPanelConfig *config){
 	ResetLcdCtrlAndTxFIFO();
 }
 
-QueueVectorGdmaDescriptorsNodePushState QueueVectorGdmaDescriptorsNodePush(LedPanelConfig *config, uint32_t *buffer){
+QueueVectorGdmaDescriptorsNodePushState QueueVectorGdmaDescriptorsNodePush(LedPanelConfig *config, uint8_t *buffer){
 	if(CheckQueueVectorGdmaDescriptorsNodeState() == QUEUE_VECTOR_DESCRIPTIORS_FULL)
 		return QUEUE_VECTOR_DESCRIPTIORS_PUSH_FAIL_CAUSE_FULL;
 	if(GetLedpanelState(config) == LEDPANEL_TRANSMIT_OK && queueVectorGdmaDescriptorsNode->size < 2)
@@ -174,8 +174,8 @@ LedPanelVectorInitState VectorGdmaDescriptorsNodeInit(VectorGdmaDescriptorsNode 
 	}
 	//-----------------------------------------------//
 	for(uint32_t i = 0; i < length; i++){
-		//uint32_t isEndFrame = i != length - 1 ? SUC_EOF_DISABLE : SUC_EOF_ENABLE;
-		SetDw0GdmaDescriptorsNode(&vector->head[i], SUC_EOF_DISABLE, bufferSize,  bufferSize);
+		uint32_t isEndFrame = i != length - 1 ? SUC_EOF_DISABLE : SUC_EOF_ENABLE;
+		SetDw0GdmaDescriptorsNode(&vector->head[i], isEndFrame, bufferSize,  bufferSize);
 		SetDw1GdmaDescriptorsNode(&vector->head[i], (uint32_t) buffer + i * bufferSize);
 	}
 	
@@ -211,7 +211,7 @@ uint32_t GetLedPanelColorPixel(uint32_t pixelUp, uint32_t pixelDown, uint32_t bi
 	return r1  | g1 | b1 | r2 | g2 | b2;
 }
 
-void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *style, uint32_t *buffer){
+void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *style, uint8_t *buffer){
 	uint32_t pixelUpSide, pixelDownSide;
 	uint32_t colorAfterConvert, addressAfterConvert;
 	colorAfterConvert = addressAfterConvert = 0;
@@ -223,7 +223,6 @@ void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *
 	uint32_t width = style->width;
 	uint32_t heigth = style->heigth;
 	uint32_t color = style->color;
-	
 	for(uint16_t bit = 0; bit < color; bit++){
 		for(uint16_t row = 0; row < heigth / 2; row++){
 			bufferDestination = (uint16_t*)vector->head[frame].DW1;
@@ -244,8 +243,8 @@ void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *
 				AddSignalClkLedPanel(bufferDestination, OE_CLOCK_CYCLES_START + OE_CLOCK_PHASE_1 + phase, 0x00, addressAfterConvert, bitColor);
 			for(uint16_t column = 0; column < width; column ++){	
 				
-				pixelUpSide = *(buffer + row * width + column);
-				pixelDownSide = *(buffer + (row + heigth / 2) * width + column);
+				pixelUpSide =  GetColorImageRaw(buffer, column, row);
+				pixelDownSide = GetColorImageRaw(buffer, column, row + heigth/ 2);
 				
 				pixelUpSide = Hub75ELutGetColor( pixelUpSide, color);
 				pixelDownSide = Hub75ELutGetColor( pixelDownSide, color);
@@ -314,7 +313,7 @@ void LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(LedPanelStyle *style, uint3
 	*size = bufferLength * sizeof(uint16_t);
 }
 
-LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[], uint32_t vectorGdmaDescriptiorsNodeSize){
+LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[], uint32_t vectorGdmaDescriptiorsNodeSize, uint32_t queueImageRaw){
 	QueueVectorGdmaDescriptorsNodeInitState queueInitState = QueueVectorGdmaDescriptorsNodeInit(&config->style, vectorGdmaDescriptiorsNodeSize);
 	switch(queueInitState){
 		case QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_FAIL:
@@ -325,6 +324,10 @@ LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[], uint32_
 			return LEDPANEL_INIT_FAIL_CAUSE_QUEUE_ALLOCATION_FAIL;
 		case QUEUE_VECTOR_DESCRIPTIORS_INIT_OK:
 			break;
+	}
+	QueueImageInitEnum queueRawInitState = QueueImageRawInit(queueImageRaw, config->style.width, config->style.heigth); 
+	if(queueRawInitState != QUEUE_IMAGE_RAW_INIT_OK){
+		return LEDPANEL_INIT_FAIL_CAUSE_QUEUE_INIT_FAIL;
 	}
 	Hub75ELutInit(config->style.gamma,
 				  config->style.redScale,
