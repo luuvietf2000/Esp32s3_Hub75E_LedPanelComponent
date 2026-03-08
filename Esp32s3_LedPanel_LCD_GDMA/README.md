@@ -11,6 +11,8 @@
 - Render queue system: A dedicated render queue is used to maximize FPS when images change, allowing smooth updates on the display.
 - SD card storage: Uses an SD card as external storage, enabling large amounts of image data and easy content expansion.
 
+https://github.com/luuvietf2000/Esp32s3_Hub75E_LedPanelComponent/blob/main/Esp32s3_LedPanel_LCD_GDMA/include/video/demo.mp4
+
 ## System Architecture
 - SD Card → PSRAM Queue Image Raw → Render Queue → GDMA Descriptor → LCD_CAM → LED Panel
 
@@ -138,18 +140,6 @@
 
 This approach ensures that **DMA never reads from memory that is being modified**, while also allowing the next frame to be prepared in parallel.
 
-Display DMA
-     │
-     ▼
-[Descriptor Set A] → LCD_CAM → LED Panel
-        │
-        │ (Render next frame)
-        ▼
-[Descriptor Set B]
-
-Switch when ready:
-A ↔ B
-
 ## Raw Image Queue
 - To simplify the rendering process and reduce system overhead, the project uses **raw image data** for display.
 - In many implementations, RGB pixels are stored in a **uint32_t** (or `unsigned long`), which requires **4 bytes per pixel**.  
@@ -196,5 +186,17 @@ The brightness perceived by the human eye and the actual brightness emitted by L
 - A customized SPI SD card driver is used in this project to read image data from storage.
 - This part mainly focuses on the driver implementation and data structures that are tailored to fit the needs of this project. Since the implementation details are not directly related to the LED panel rendering pipeline, they will not be discussed in detail here.
 
+## Limitation
+- During the latch operation, the clock signal is triggered simultaneously.  
+- This behavior does not fully match the timing requirements specified in the ICN2037 datasheet.
+- As a result, when displaying a colored pixel surrounded by black pixels, unintended color leakage may occur.  
+- Some neighboring pixels (typically one of the four adjacent pixels) may briefly show the same color due to timing inaccuracies.
 
+### Future Improvements
+- First, the current project is implemented using bare-metal programming, which does not fully utilize the capabilities of the ESP32-S3. In the next stage, the system will be migrated to **FreeRTOS** to better leverage the dual-core architecture of the ESP32-S3. Planned architecture:
+	+ **CPU0**: Handle WiFi communication.
+	+ **CPU1**: Process image update tasks and manage SD card operations.
+	+ **WiFi Interface**: Allow users to upload or delete raw image files stored on the SD card.
+	+ **Control Application**: A companion app will be developed to control and manage the system.
 
+- Finally, reduce signal noise and timing artifacts to ensure colors are displayed with full accuracy.
