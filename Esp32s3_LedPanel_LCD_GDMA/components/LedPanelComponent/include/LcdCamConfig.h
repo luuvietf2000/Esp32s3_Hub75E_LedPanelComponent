@@ -14,7 +14,7 @@
 #define LCD_CAM_LCD_CLKM_DIV_A_DEFFAULT					1
 #define LCD_CAM_LCD_CLKM_DIV_B_DEFFAULT					0
 
-#define M0												10
+#define M0												5
 
 #define LCD_CAM_LCD_CLK_EQU_SYSCLK_DEFFAULT				1	
 #define LCD_CAM_LCD_CLKCNT_N_DEFFAULT					(M0 - 1)

@@ -43,7 +43,8 @@
 
 //-------------------------------------------------------------------------------/
 #define SECOND_UINT							1000
-#define PATH_DIR_IMAGE_RAW					"ImageRaw"
+#define DIRECTORY_NAME						"ImageRaw"
+#define PATH_DIR_IMAGE_RAW					FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH "/" DIRECTORY_NAME
 #define SIZE_NAME							256
 #define BUFFER_SIZE							4096
 //-------------------------------------------------------------------------------/
@@ -107,17 +108,17 @@ void app_main(void)
 	QueueImageRawStateEnum state;
 	uint32_t index = 0;
 	FatSdCardSpiCustomCopyState sdCardCopyState;
+
 	uint32_t length =  ledPanelConfig.style.heigth * ledPanelConfig.style.width * HUB75E_LUT_COLOR;
 	while((state = GetQueueImageRawState())  != QUEUE_IMAGE_RAW_FULL) {
 		PushQueuueImageRaw();
 		uint8_t *des = PeekTailQueueImageRaw();
-		sdCardCopyState = CopySdcardSpiFile(PATH_FILE_TEST, des, length, index);
+		sdCardCopyState = CopySdCardSpiFile(PATH_FILE_TEST, des, length, index);
 		if(sdCardCopyState != FAT_SD_CARD_SPI_CUSTOM_COPY_OK)
 			break;
 		index += length;
 	}
 	
-
 	while (1){
 		PopQueueImageRaw();
 		uint8_t *buffer = PeekHeadQueueImageRaw();
@@ -228,7 +229,7 @@ void PushImageRawInQueue(){
 		if(state != QUEUE_IMAGE_RAW_FULL){
 			PushQueuueImageRaw();
 			uint8_t *des = PeekTailQueueImageRaw();
-			CopySdcardSpiFile(PATH_FILE_TEST, des, 4096, 0);
+			CopySdCardSpiFile(PATH_FILE_TEST, des, 4096, 0);
 		}
 		xSemaphoreGive(queueImageRawMutex);
 	}
@@ -236,6 +237,13 @@ void PushImageRawInQueue(){
 
 
 void RandomImageRawName(DIR *dir, char name[]){
+	DirentLinkerList list;
+	GetListFileSdCardSPI(PATH_DIR_IMAGE_RAW, &list);
+  	for(uint32_t i = 0; i < list.size; i++){
+		  DirentNode *node = DirentLinkerListGetIndex(&list, i);
+		  ESP_LOGI("list", "%s", node->name);
+	}
+	DirentLinkerListDetelte(&list);
 }
 
 void FatSdCardSpiCustomConfigInit(FatSdCardSpiCustomConfig *config){
@@ -278,7 +286,7 @@ void LedPanelConfigInit(LedPanelConfig *config){
 		 LEDPANEL_PIN_LATCH, LEDPANEL_PIN_OE, LEDPANEL_PIN_CLK
 	};
 	
-	LedPanelInit(config, ledPanelPin, 2, 60);
+	LedPanelInit(config, ledPanelPin, 2, 200);
 }
 
 void SemaphoreInit(){
