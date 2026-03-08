@@ -12,7 +12,7 @@
 - SD card storage: Uses an SD card as external storage, enabling large amounts of image data and easy content expansion.
 
 ## Demo
-https://raw.githubusercontent.com/luuvietf2000/Esp32s3_Hub75E_LedPanelComponent/main/Esp32s3_LedPanel_LCD_GDMA/include/video/demo.mp4
+https://github.com/user-attachments/assets/479dea61-e4d8-4dc6-bb64-c40b707f2991
 
 ## System Architecture
 - SD Card → PSRAM Queue Image Raw → Render Queue → GDMA Descriptor → LCD_CAM → LED Panel
