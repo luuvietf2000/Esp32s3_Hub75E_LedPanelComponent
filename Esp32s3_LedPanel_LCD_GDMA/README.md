@@ -3,6 +3,18 @@
 - Display data is read from an SD card and buffered in memory before being streamed to the LED panel using DMA through the ESP32-S3 LCD_CAM peripheral. This approach allows efficient high-speed data transfer with minimal CPU overhead.
 - The project is structured using modular components, making it easier to maintain and extend.
 
+## Table of Contents
+- Features
+- Demo
+- System Architecture
+- Memory Calculation
+- Hardware Requirements
+- Image Transmission Timing
+- Image Raw Queue
+- Gamma Correction
+- Limitations
+- Future Improvements
+
 ## Features
 - Low CPU usage: The CPU is mainly used for calculation and data preparation, while data transfer to the LED panel is handled by DMA through the ESP32-S3 LCD_CAM peripheral.
 - 8-bit color control: Supports up to **2^24 colors** for rich and detailed LED panel display.
@@ -12,7 +24,7 @@
 - SD card storage: Uses an SD card as external storage, enabling large amounts of image data and easy content expansion.
 
 ## Demo
-https://raw.githubusercontent.com/luuvietf2000/Esp32s3_Hub75E_LedPanelComponent/main/Esp32s3_LedPanel_LCD_GDMA/include/video/demo.mp4
+https://github.com/user-attachments/assets/479dea61-e4d8-4dc6-bb64-c40b707f2991
 
 ## System Architecture
 - SD Card → PSRAM Queue Image Raw → Render Queue → GDMA Descriptor → LCD_CAM → LED Panel
