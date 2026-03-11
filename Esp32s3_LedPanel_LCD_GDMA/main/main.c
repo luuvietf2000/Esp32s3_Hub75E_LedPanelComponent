@@ -14,51 +14,55 @@
 #include "soc/gpio_num.h"
 #include "FatSdCardSpiCustom.h"
 #include "sys/dirent.h"
+#include "esp_random.h"
 
-#define LEDPANEL_WIDTH 						128
-#define LEDPANEL_HEIGTH 					64
+#define LEDPANEL_WIDTH 																128
+#define LEDPANEL_HEIGTH 															64
 
-#define LEDPANEL_PIN_A          			GPIO_NUM_17
-#define LEDPANEL_PIN_B          			GPIO_NUM_18
-#define LEDPANEL_PIN_C          			GPIO_NUM_8
-#define LEDPANEL_PIN_D          			GPIO_NUM_9
-#define LEDPANEL_PIN_E          			GPIO_NUM_14
+#define LEDPANEL_PIN_A          													GPIO_NUM_17
+#define LEDPANEL_PIN_B          													GPIO_NUM_18
+#define LEDPANEL_PIN_C          													GPIO_NUM_8
+#define LEDPANEL_PIN_D          													GPIO_NUM_9
+#define LEDPANEL_PIN_E          													GPIO_NUM_14
 
-#define LEDPANEL_PIN_R1         			GPIO_NUM_4
-#define LEDPANEL_PIN_G1         			GPIO_NUM_5
-#define LEDPANEL_PIN_B1         			GPIO_NUM_6
-#define LEDPANEL_PIN_R2         			GPIO_NUM_7
-#define LEDPANEL_PIN_G2         			GPIO_NUM_15
-#define LEDPANEL_PIN_B2         			GPIO_NUM_16
+#define LEDPANEL_PIN_R1         													GPIO_NUM_4
+#define LEDPANEL_PIN_G1         													GPIO_NUM_5
+#define LEDPANEL_PIN_B1         													GPIO_NUM_6
+#define LEDPANEL_PIN_R2        											 			GPIO_NUM_7
+#define LEDPANEL_PIN_G2         													GPIO_NUM_15
+#define LEDPANEL_PIN_B2         													GPIO_NUM_16
 
-#define LEDPANEL_PIN_CLK        			GPIO_NUM_1
-#define LEDPANEL_PIN_LATCH      			GPIO_NUM_2
-#define LEDPANEL_PIN_OE			 			GPIO_NUM_21
+#define LEDPANEL_PIN_CLK        													GPIO_NUM_1
+#define LEDPANEL_PIN_LATCH      													GPIO_NUM_2
+#define LEDPANEL_PIN_OE			 													GPIO_NUM_21
 
-#define SD_CARD_MOSI						GPIO_NUM_11
-#define SD_CARD_MISO						GPIO_NUM_13
-#define SD_CARD_CLK							GPIO_NUM_12
-#define SD_CARD_CS							GPIO_NUM_10
-#define SD_CARD_OPEN_MAX_FILE				5
+#define SD_CARD_MOSI																GPIO_NUM_11
+#define SD_CARD_MISO																GPIO_NUM_13
+#define SD_CARD_CLK																	GPIO_NUM_12
+#define SD_CARD_CS																	GPIO_NUM_10
+#define SD_CARD_OPEN_MAX_FILE														5
 
 //-------------------------------------------------------------------------------/
-#define SECOND_UINT							1000
-#define DIRECTORY_NAME						"ImageRaw"
-#define PATH_DIR_IMAGE_RAW					FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH "/" DIRECTORY_NAME
-#define SIZE_NAME							256
-#define BUFFER_SIZE							4096
+#define SECOND_UINT																	1000
+#define DIRECTORY_NAME																"ImageRaw"
+#define PATH_DIR_IMAGE_RAW															FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH "/" DIRECTORY_NAME "/"
+#define SIZE_NAME																	256
+#define BUFFER_SIZE																	4096
+
 //-------------------------------------------------------------------------------/
-#define PATH_FILE_TEST						"/sdcard/ImageRaw/test.imgRaw"
-#define TAG_APP_MAIN						"app_main"
-#define APP_MAIN_INIT						"app_main init"
-#define TAG_LEDPANEL_TASK					"LedPanelTask"
-#define TAG_CONVERT_IMAGE_TASK				"CoverntImageToVectorGdmadescriptorsNodeTask"
-#define TAG_SD_CARD_SPI_TASK				"SdCardSpiTask"
-#define TASK_START							"Task start on core %d"
-#define TASK_RUNNING						"Task running on core %d"
-#define TAG_DELAY							"Task delay %d ms"
-#define SD_OPEN_FAIL						"Open %s fail"
-#define TASK_NOTYFI							"Task notify cause %s"
+#define PATH_FILE_TEST																"/sdcard/ImageRaw/test.imgRaw"
+#define TAG_APP_MAIN																"app_main"
+#define APP_MAIN_INIT																"app_main init"
+#define TAG_LEDPANEL_TASK															"LedPanelTask"
+#define TAG_CONVERT_IMAGE_TASK														"CoverntImageToVectorGdmadescriptorsNodeTask"
+#define TAG_SD_CARD_SPI_TASK														"SdCardSpiTask"
+#define TASK_START																	"Task start on core %d"
+#define TASK_RUNNING																"Task running on core"
+#define TAG_DELAY																	"Task delay %d ms"
+#define SD_OPEN_FAIL																"Open %s fail"
+#define TASK_NOTYFI																	"Task notify cause %s"
+#define RANDOM_IMAGE_RAW_NAME														"RandomImageRawName"
+#define RANDOM_IMAGE_RAW_FAIL_CAUSE_DIRECTORY_EMPTY_CONTENT 						"RANDOM_IMAGE_RAW_FAIL_CAUSE_DIRECTORY_EMPTY_CONTENT"		
 //-------------------------------------------------------------------------------/
 
 typedef enum{
@@ -73,6 +77,14 @@ typedef enum{
 	CORE_1
 } CoreEnum;
 
+typedef enum{
+	RANDOM_IMAGE_RAW_NAME_OK,
+	RANDOM_IMAGE_RAW_NAME_FAIL_CAUSE_DIRECTORY_EMPTY
+} RandomImageRawNameState;
+
+//-------------------------------------------------------------------------------/
+
+
 //-------------------------------------------------------------------------------/
 
 const char pathImageRawFolder[] = FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH "/" PATH_DIR_IMAGE_RAW;
@@ -83,13 +95,13 @@ FatSdCardSpiCustomConfig sdCardConfig;
 SemaphoreHandle_t queueImageRawMutex;
 SemaphoreHandle_t queueGdmaDescriptorsMutex;
 uint32_t fps;
-
+struct FileInfomation ledPanelFile; 
 uint32_t timeLedPanelUpdate;
+TaskHandle_t CoverntImageToVectorGdmadescriptorsNodeHandle = NULL;
 //-------------------------------------------------------------------------------/
 void RequestNextGdmaDescriptorsNodeInQueue();
-void PushGdmaDescriptorsNode();
-void PushImageRawInQueue();
-void RandomImageRawName(DIR *dir, char name[]);
+void TaskNotify(TaskHandle_t *task);
+RandomImageRawNameState RandomImageRawName(char *path);
 void LedPanelConfigInit(LedPanelConfig *config);
 void FatSdCardSpiCustomConfigInit(FatSdCardSpiCustomConfig *config);
 
@@ -99,34 +111,17 @@ void SdCardSpiTask(void *pvParameters);
 
 void SemaphoreInit();
 void CreateTask();
+void Setup();
 
 void app_main(void)
 {
+	Setup();
 	ESP_LOGI(TAG_APP_MAIN, APP_MAIN_INIT);
 	FatSdCardSpiCustomConfigInit(&sdCardConfig);
 	LedPanelConfigInit(&ledPanelConfig);
-	QueueImageRawStateEnum state;
-	uint32_t index = 0;
-	FatSdCardSpiCustomCopyState sdCardCopyState;
-
-	uint32_t length =  ledPanelConfig.style.heigth * ledPanelConfig.style.width * HUB75E_LUT_COLOR;
-	while((state = GetQueueImageRawState())  != QUEUE_IMAGE_RAW_FULL) {
-		PushQueuueImageRaw();
-		uint8_t *des = PeekTailQueueImageRaw();
-		sdCardCopyState = CopySdCardSpiFile(PATH_FILE_TEST, des, length, index);
-		if(sdCardCopyState != FAT_SD_CARD_SPI_CUSTOM_COPY_OK)
-			break;
-		index += length;
-	}
-	
-	while (1){
-		PopQueueImageRaw();
-		uint8_t *buffer = PeekHeadQueueImageRaw();
-		QueueVectorGdmaDescriptorsNodePush(&ledPanelConfig, buffer);
-		RequestNextVectorGdmaDescriptorsNode(&ledPanelConfig);
-		vTaskDelay(pdMS_TO_TICKS(15));
-	}
-	
+	FileInfomationInit(&ledPanelFile, SIZE_NAME);
+	SemaphoreInit();
+	CreateTask();
 }
 
 //-------------------------------------------------------------------------------/
@@ -147,13 +142,13 @@ void CreateTask(){
         8192,
         NULL,
         FREE_RTOS_PRIORITY_HIGH,
-        NULL,
+        &CoverntImageToVectorGdmadescriptorsNodeHandle,
         CORE_1
     );
     xTaskCreatePinnedToCore(
         SdCardSpiTask,
         "SdCardSpiTask",
-        16392,
+        8192,
         NULL,
         FREE_RTOS_PRIORITY_MEDIUM,
         NULL,
@@ -164,86 +159,124 @@ void CreateTask(){
 void LedPanelTask(void *pvParameters){
 	ESP_LOGI(TAG_LEDPANEL_TASK, TASK_START, xPortGetCoreID());
 	while (1) {
-		ESP_LOGI(TAG_LEDPANEL_TASK, TASK_RUNNING, xPortGetCoreID());
-		RequestNextGdmaDescriptorsNodeInQueue();
-		ESP_LOGI(TAG_LEDPANEL_TASK, TAG_DELAY, timeLedPanelUpdate);
+		ESP_LOGI(TAG_LEDPANEL_TASK, TASK_RUNNING);
+		if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
+			RequestNextGdmaDescriptorsNodeInQueue();
+			xSemaphoreGive(queueGdmaDescriptorsMutex);
+		}
 		//vTaskDelay(pdMS_TO_TICKS(timeLedPanelUpdate));
-		vTaskDelay(pdMS_TO_TICKS(10000));
+		vTaskDelay(pdMS_TO_TICKS(SECOND_UINT/fps));
 	}
 }
 
 
 void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters){
 	ESP_LOGI(TAG_CONVERT_IMAGE_TASK, TASK_START, xPortGetCoreID());
+	QueueImageRawStateEnum state;
+	eTaskState taskState;
 	while (1) {
-		ESP_LOGI(TAG_CONVERT_IMAGE_TASK, TASK_RUNNING, xPortGetCoreID());
-		if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
-			QueueVectorGdmaDescriptorsNodeState state = CheckQueueVectorGdmaDescriptorsNodeState();
-			if(state != QUEUE_VECTOR_DESCRIPTIORS_FULL){
-				PushGdmaDescriptorsNode();
+		ESP_LOGI(TAG_CONVERT_IMAGE_TASK, TASK_RUNNING);
+		taskState = eReady;
+		if(xSemaphoreTake(queueImageRawMutex, portMAX_DELAY) == pdTRUE){
+			if((state = GetQueueImageRawState()) != QUEUE_IMAGE_RAW_EMPTY){
+				if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY)){
+					QueueVectorGdmaDescriptorsNodeState state = CheckQueueVectorGdmaDescriptorsNodeState();
+					if(state != QUEUE_VECTOR_DESCRIPTIORS_FULL){
+						PopQueueImageRaw();
+						uint8_t *buffer = PeekHeadQueueImageRaw();
+						QueueVectorGdmaDescriptorsNodePush(&ledPanelConfig, buffer);
+					}
+					if(CheckQueueVectorGdmaDescriptorsNodeState() == QUEUE_VECTOR_DESCRIPTIORS_FULL)
+						taskState = eBlocked;
+					xSemaphoreGive(queueGdmaDescriptorsMutex);
+				}
 			}
-			xSemaphoreGive(queueGdmaDescriptorsMutex);
+			if((state = GetQueueImageRawState()) == QUEUE_IMAGE_RAW_EMPTY)
+				taskState = eBlocked;		
+			xSemaphoreGive(queueImageRawMutex);
 		}
-		
-		vTaskDelay(pdMS_TO_TICKS(10000));
+		if(taskState == eBlocked)
+			ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+		taskYIELD();
 	}
 }
 
 void SdCardSpiTask(void *pvParameters){
 	ESP_LOGI(TAG_SD_CARD_SPI_TASK, TASK_START, xPortGetCoreID());
+	QueueImageRawStateEnum state;
+	FatSdCardSpiCustomCopyState sdCardCopyState = FAT_SD_CARD_SPI_CUSTOM_COPY_OK;
+	const uint32_t length =  ledPanelConfig.style.heigth * ledPanelConfig.style.width * HUB75E_LUT_COLOR;
+	uint8_t *des;
 	while (1) {
-		ESP_LOGI(TAG_SD_CARD_SPI_TASK, TASK_RUNNING, xPortGetCoreID());
-		PushImageRawInQueue();
-		vTaskDelay(pdMS_TO_TICKS(2000));
+		ESP_LOGI(TAG_SD_CARD_SPI_TASK, TASK_RUNNING);
+		if(xSemaphoreTake(queueImageRawMutex, portMAX_DELAY) == pdTRUE){
+			if((state = GetQueueImageRawState()) != QUEUE_IMAGE_RAW_FULL){
+				
+				if(sdCardCopyState == FAT_SD_CARD_SPI_CUSTOM_COPY_OK)
+					PushQueuueImageRaw();
+				des = PeekTailQueueImageRaw();
+				xSemaphoreGive(queueImageRawMutex);
+							
+				if(FileInfomationNameCheck(&ledPanelFile) == FILE_INFOMATION_NAME_EMPTY)
+					RandomImageRawName(ledPanelFile.path);
+					
+				sdCardCopyState = CopySdCardSpiFile(ledPanelFile.path, des, length, ledPanelFile.offset);
+				if(sdCardCopyState == FAT_SD_CARD_SPI_CUSTOM_COPY_OK)
+					ledPanelFile.offset += length;
+				else
+					SetFileInfomationEmty(&ledPanelFile);
+				
+				// Notify task if queue render empty
+				if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
+					if(CheckQueueVectorGdmaDescriptorsNodeState() != QUEUE_VECTOR_DESCRIPTIORS_FULL)
+						TaskNotify(&CoverntImageToVectorGdmadescriptorsNodeHandle);
+					xSemaphoreGive(queueGdmaDescriptorsMutex);
+				}
+				
+			}
+		}
+		taskYIELD();
 	}
 }
-
 
 //-------------------------------------------------------------------------------/
 
+void Setup(){
+	fps = 60;
+}
+
+void TaskNotify(TaskHandle_t *task){
+	if(eTaskGetState(*task) == eBlocked){
+		xTaskNotifyGive(*task);
+	}
+}
+
 void RequestNextGdmaDescriptorsNodeInQueue(){
-	if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
-		QueueVectorGdmaDescriptorsNodeState state = CheckQueueVectorGdmaDescriptorsNodeState();
-		if(state != QUEUE_VECTOR_DESCRIPTIORS_EMPTY){
-			RequestNextVectorGdmaDescriptorsNode(&ledPanelConfig);
-		}
-		xSemaphoreGive(queueGdmaDescriptorsMutex);
-	}
-}
-
-void PushGdmaDescriptorsNode(){
-	if (xSemaphoreTake(queueImageRawMutex, portMAX_DELAY) == pdTRUE){
-		QueueImageRawStateEnum state = GetQueueImageRawState();
-		if(state != QUEUE_IMAGE_RAW_EMPTY){
-			PopQueueImageRaw();
-			uint8_t *des = PeekHeadQueueImageRaw();
-			QueueVectorGdmaDescriptorsNodePush(&ledPanelConfig, des);
-		}
-		xSemaphoreGive(queueImageRawMutex);
-	}
-}
-
-void PushImageRawInQueue(){
-	if (xSemaphoreTake(queueImageRawMutex, portMAX_DELAY) == pdTRUE){
-		QueueImageRawStateEnum state = GetQueueImageRawState();
-		if(state != QUEUE_IMAGE_RAW_FULL){
-			PushQueuueImageRaw();
-			uint8_t *des = PeekTailQueueImageRaw();
-			CopySdCardSpiFile(PATH_FILE_TEST, des, 4096, 0);
-		}
-		xSemaphoreGive(queueImageRawMutex);
+	QueueVectorGdmaDescriptorsNodeState state = CheckQueueVectorGdmaDescriptorsNodeState();
+	if(state != QUEUE_VECTOR_DESCRIPTIORS_EMPTY){
+		RequestNextVectorGdmaDescriptorsNode(&ledPanelConfig);
 	}
 }
 
 
-void RandomImageRawName(DIR *dir, char name[]){
+RandomImageRawNameState RandomImageRawName(char *path){
 	DirentLinkerList list;
 	GetListFileSdCardSPI(PATH_DIR_IMAGE_RAW, &list);
   	for(uint32_t i = 0; i < list.size; i++){
 		  DirentNode *node = DirentLinkerListGetIndex(&list, i);
 		  ESP_LOGI("list", "%s", node->name);
 	}
+	uint32_t size = list.size;
+	if(size == 0){
+		ESP_LOGE(RANDOM_IMAGE_RAW_NAME, RANDOM_IMAGE_RAW_FAIL_CAUSE_DIRECTORY_EMPTY_CONTENT);
+		return RANDOM_IMAGE_RAW_NAME_FAIL_CAUSE_DIRECTORY_EMPTY;
+	}
+	uint32_t indexRandom = esp_random() % size;
+	DirentNode *node = DirentLinkerListGetIndex(&list, indexRandom);
+	memcpy(path, PATH_DIR_IMAGE_RAW, strlen(PATH_DIR_IMAGE_RAW));
+	memcpy(path + strlen(PATH_DIR_IMAGE_RAW), node->name, strlen(node->name) + 1);
 	DirentLinkerListDetelte(&list);
+	return RANDOM_IMAGE_RAW_NAME_OK;
 }
 
 void FatSdCardSpiCustomConfigInit(FatSdCardSpiCustomConfig *config){

@@ -20,6 +20,24 @@
 #define FAT_SD_CARD_SPI_CUSTOM_READ_BYTE													"Read %lu byte"
 #define FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_FAIL_CAUSE_OPEN_DERECTORY_FAIL_CONTENT		"FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_FAIL_CAUSE_OPEN_DERECTORY_FAIL"
 
+
+void SetFileInfomationEmty(FileInfomation *fileInformation){
+	*(fileInformation->path + FAT_SD_CARD_SPI_CUSTOM_INDEX_NAME_CHECK) = FAT_SD_CARD_SPI_CUSTOM_CHAR_EMPTY;
+	fileInformation->offset = 0;
+}
+
+FileInfomationNameState FileInfomationNameCheck(FileInfomation *fileInformation){
+	FileInfomationNameState state;
+	state = *(fileInformation->path + FAT_SD_CARD_SPI_CUSTOM_INDEX_NAME_CHECK) == FAT_SD_CARD_SPI_CUSTOM_CHAR_EMPTY;
+	return state ? FILE_INFOMATION_NAME_EMPTY : FILE_INFOMATION_NAME_NOT_EMPTY;
+}
+
+void FileInfomationInit(FileInfomation *fileInformation, uint32_t size){
+	fileInformation->offset = 0;
+	fileInformation->path = heap_caps_malloc(size * sizeof(char), MALLOC_CAP_DEFAULT);
+	SetFileInfomationEmty(fileInformation);
+}
+
 FasrSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLinkerList *list){
 	DirentLinkerListInit(list);
 	DIR *dir = opendir(path);

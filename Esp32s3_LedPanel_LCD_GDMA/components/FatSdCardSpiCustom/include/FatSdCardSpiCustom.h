@@ -13,7 +13,8 @@
 
 #define FAT_SD_CARD_SPI_CUSTOM_END_FILE									0
 #define FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH 								"/sdcard"
-
+#define FAT_SD_CARD_SPI_CUSTOM_INDEX_NAME_CHECK							0
+#define FAT_SD_CARD_SPI_CUSTOM_CHAR_EMPTY								0
 
 typedef enum{
 	FAT_SD_CARD_SPI_CUSTOM_COPY_OK,
@@ -27,6 +28,11 @@ typedef enum{
 	FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_OK,
 	FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_FAIL_CAUSE_OPEN_DERECTORY_FAIL
 } FasrSdCardSpiCustomReadListFileState;
+
+typedef enum{
+	FILE_INFOMATION_NAME_EMPTY,
+	FILE_INFOMATION_NAME_NOT_EMPTY
+} FileInfomationNameState;
 
 typedef struct FatSdCardSpiCustomConfig{
 	spi_bus_config_t spiConfig;
@@ -48,6 +54,14 @@ typedef struct DirentLinkerList{
 	uint32_t size;
 } DirentLinkerList;
 
+typedef struct FileInfomation{
+	char *path;
+	uint32_t offset;
+} FileInfomation;
+
+void SetFileInfomationEmty(FileInfomation *fileInformation);
+FileInfomationNameState FileInfomationNameCheck(FileInfomation *fileInformation);
+void FileInfomationInit(FileInfomation *fileInformation, uint32_t size);
 FasrSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLinkerList *list);
 void DirentLinkerListInit(DirentLinkerList *list);
 void DirentLinkerListPush(DirentLinkerList *list, DirentNode *entry);
