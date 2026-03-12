@@ -135,9 +135,9 @@ typedef struct LedPanelConfig{
 
 typedef struct QueueVectorGdmaDescriptorsNode{
 	VectorGdmaDescriptorsNode vector;
-	int size;
-	int rear;
-	int front; 
+	uint32_t size;
+	uint32_t rear;
+	uint32_t front; 
 }QueueVectorGdmaDescriptorsNode;
 
 static struct QueueVectorGdmaDescriptorsNode *queueVectorGdmaDescriptorsNode;

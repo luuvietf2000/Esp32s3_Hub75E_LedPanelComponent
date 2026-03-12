@@ -18,9 +18,9 @@ typedef struct ImageRaw{
 
 typedef struct QueueImageRaw{
 	struct ImageRaw *head;
-	int size;
-	int rear;
-	int front;
+	uint32_t size;
+	uint32_t rear;
+	uint32_t front;
 	uint32_t width;
 	uint32_t heigth;
 } QueueImageRaw;

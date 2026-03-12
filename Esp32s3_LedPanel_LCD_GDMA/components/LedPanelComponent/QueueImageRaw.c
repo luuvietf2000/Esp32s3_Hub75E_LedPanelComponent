@@ -94,7 +94,7 @@ QueueImageInitEnum QueueImageRawInit(int size, uint32_t width, uint32_t heigth){
 		ESP_LOGE(TAG_QUEUE_IMAGE_RAW_INIT, QUEUE_IMAGE_RAW_INIT_FAIL_CAUSE_ALLOCATION_QUEUE_FAIL_CONTENT);
 		return QUEUE_IMAGE_RAW_INIT_FAIL_CAUSE_ALLOCATION_QUEUE_FAIL;
 	}
-	queueImageRaw->front = queueImageRaw->rear = -1;
+	queueImageRaw->front = queueImageRaw->rear = 0;
 	queueImageRaw->size = size;
 	queueImageRaw->heigth = heigth;
 	queueImageRaw->width = width;

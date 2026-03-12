@@ -179,11 +179,11 @@ void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters){
 		taskState = eReady;
 		if(xSemaphoreTake(queueImageRawMutex, portMAX_DELAY) == pdTRUE){
 			if((state = GetQueueImageRawState()) != QUEUE_IMAGE_RAW_EMPTY){
-				if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY)){
+				if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
 					QueueVectorGdmaDescriptorsNodeState state = CheckQueueVectorGdmaDescriptorsNodeState();
 					if(state != QUEUE_VECTOR_DESCRIPTIORS_FULL){
-						PopQueueImageRaw();
 						uint8_t *buffer = PeekHeadQueueImageRaw();
+						PopQueueImageRaw();
 						QueueVectorGdmaDescriptorsNodePush(&ledPanelConfig, buffer);
 					}
 					if(CheckQueueVectorGdmaDescriptorsNodeState() == QUEUE_VECTOR_DESCRIPTIORS_FULL)
@@ -211,18 +211,17 @@ void SdCardSpiTask(void *pvParameters){
 		ESP_LOGI(TAG_SD_CARD_SPI_TASK, TASK_RUNNING);
 		if(xSemaphoreTake(queueImageRawMutex, portMAX_DELAY) == pdTRUE){
 			if((state = GetQueueImageRawState()) != QUEUE_IMAGE_RAW_FULL){
-				
-				if(sdCardCopyState == FAT_SD_CARD_SPI_CUSTOM_COPY_OK)
-					PushQueuueImageRaw();
+
 				des = PeekTailQueueImageRaw();
-				xSemaphoreGive(queueImageRawMutex);
-							
 				if(FileInfomationNameCheck(&ledPanelFile) == FILE_INFOMATION_NAME_EMPTY)
 					RandomImageRawName(ledPanelFile.path);
 					
 				sdCardCopyState = CopySdCardSpiFile(ledPanelFile.path, des, length, ledPanelFile.offset);
-				if(sdCardCopyState == FAT_SD_CARD_SPI_CUSTOM_COPY_OK)
+				xSemaphoreGive(queueImageRawMutex);	
+				if(sdCardCopyState == FAT_SD_CARD_SPI_CUSTOM_COPY_OK){
 					ledPanelFile.offset += length;
+					PushQueuueImageRaw();
+				}
 				else
 					SetFileInfomationEmty(&ledPanelFile);
 				

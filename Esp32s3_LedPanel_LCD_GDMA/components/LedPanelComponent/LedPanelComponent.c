@@ -129,7 +129,7 @@ QueueVectorGdmaDescriptorsNodeInitState QueueVectorGdmaDescriptorsNodeInit(LedPa
 		return QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_QUEUE_FAIL;
 	}
 	queueVectorGdmaDescriptorsNode->size = size;
-	queueVectorGdmaDescriptorsNode->rear = queueVectorGdmaDescriptorsNode->front = -1;
+	queueVectorGdmaDescriptorsNode->rear = queueVectorGdmaDescriptorsNode->front = 0;
 	uint32_t bufferSize, vectorLength;
 	LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(style, &vectorLength, &bufferSize);
 	for(uint32_t i = 0; i < size; i++){
