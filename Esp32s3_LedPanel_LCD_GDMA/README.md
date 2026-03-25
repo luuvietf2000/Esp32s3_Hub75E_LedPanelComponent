@@ -174,6 +174,7 @@ The brightness perceived by the human eye and the actual brightness emitted by L
 
 ### Color Balance
 - Different LED colors have different brightness efficiencies, so each channel is scaled:
+
 	R' = R × Kr  
 	G' = G × Kg  
 	B' = B × Kb  

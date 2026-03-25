@@ -212,7 +212,6 @@ void SdCardSpiTask(void *pvParameters){
 					RandomImageRawName(ledPanelFile.path);
 					
 				sdCardCopyState = CopySdCardSpiFile(ledPanelFile.path, des, length, ledPanelFile.offset);
-				xSemaphoreGive(queueImageRawMutex);	
 				if(sdCardCopyState == FAT_SD_CARD_SPI_CUSTOM_COPY_OK){
 					ledPanelFile.offset += length;
 					PushQueuueImageRaw();
@@ -228,6 +227,7 @@ void SdCardSpiTask(void *pvParameters){
 				}
 				
 			}
+			xSemaphoreGive(queueImageRawMutex);	
 		}
 		taskYIELD();
 	}
