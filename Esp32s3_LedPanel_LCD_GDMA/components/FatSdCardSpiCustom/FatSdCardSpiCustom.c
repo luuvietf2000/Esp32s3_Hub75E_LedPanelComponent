@@ -156,8 +156,6 @@ esp_err_t FatSdCardSpiCustomInit(FatSdCardSpiCustomConfig *config){
     
     config->slotConfig = slotConfig;
     
-
-    
     ret = esp_vfs_fat_sdspi_mount(FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH,
     							  &config->host,
 	                              &config->slotConfig,

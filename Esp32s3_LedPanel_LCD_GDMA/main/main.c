@@ -48,6 +48,7 @@
 #define PATH_DIR_IMAGE_RAW															FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH "/" DIRECTORY_NAME "/"
 #define SIZE_NAME																	256
 #define BUFFER_SIZE																	4096
+#define FPS_DEFAULT																	60
 
 //-------------------------------------------------------------------------------/
 #define PATH_FILE_TEST																"/sdcard/ImageRaw/test.imgRaw"
@@ -100,7 +101,6 @@ uint32_t timeLedPanelUpdate;
 TaskHandle_t CoverntImageToVectorGdmadescriptorsNodeHandle = NULL;
 //-------------------------------------------------------------------------------/
 void RequestNextGdmaDescriptorsNodeInQueue();
-void TaskNotify(TaskHandle_t *task);
 RandomImageRawNameState RandomImageRawName(char *path);
 void LedPanelConfigInit(LedPanelConfig *config);
 void FatSdCardSpiCustomConfigInit(FatSdCardSpiCustomConfig *config);
@@ -111,11 +111,11 @@ void SdCardSpiTask(void *pvParameters);
 
 void SemaphoreInit();
 void CreateTask();
-void Setup();
+void SetupParameter();
 
 void app_main(void)
 {
-	Setup();
+	SetupParameter();
 	ESP_LOGI(TAG_APP_MAIN, APP_MAIN_INIT);
 	FatSdCardSpiCustomConfigInit(&sdCardConfig);
 	LedPanelConfigInit(&ledPanelConfig);
@@ -157,31 +157,27 @@ void CreateTask(){
 }
 
 void LedPanelTask(void *pvParameters){
-	ESP_LOGI(TAG_LEDPANEL_TASK, TASK_START, xPortGetCoreID());
 	while (1) {
 		ESP_LOGI(TAG_LEDPANEL_TASK, TASK_RUNNING);
 		if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
 			RequestNextGdmaDescriptorsNodeInQueue();
 			xSemaphoreGive(queueGdmaDescriptorsMutex);
 		}
-		//vTaskDelay(pdMS_TO_TICKS(timeLedPanelUpdate));
 		vTaskDelay(pdMS_TO_TICKS(SECOND_UINT/fps));
 	}
 }
 
 
 void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters){
-	ESP_LOGI(TAG_CONVERT_IMAGE_TASK, TASK_START, xPortGetCoreID());
-	QueueImageRawStateEnum state;
 	eTaskState taskState;
+	uint32_t countNotify;
 	while (1) {
 		ESP_LOGI(TAG_CONVERT_IMAGE_TASK, TASK_RUNNING);
 		taskState = eReady;
 		if(xSemaphoreTake(queueImageRawMutex, portMAX_DELAY) == pdTRUE){
-			if((state = GetQueueImageRawState()) != QUEUE_IMAGE_RAW_EMPTY){
+			if(GetQueueImageRawState() != QUEUE_IMAGE_RAW_EMPTY){
 				if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
-					QueueVectorGdmaDescriptorsNodeState state = CheckQueueVectorGdmaDescriptorsNodeState();
-					if(state != QUEUE_VECTOR_DESCRIPTIORS_FULL){
+					if(CheckQueueVectorGdmaDescriptorsNodeState() != QUEUE_VECTOR_DESCRIPTIORS_FULL){
 						uint8_t *buffer = PeekHeadQueueImageRaw();
 						PopQueueImageRaw();
 						QueueVectorGdmaDescriptorsNodePush(&ledPanelConfig, buffer);
@@ -191,18 +187,17 @@ void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters){
 					xSemaphoreGive(queueGdmaDescriptorsMutex);
 				}
 			}
-			if((state = GetQueueImageRawState()) == QUEUE_IMAGE_RAW_EMPTY)
+			if(GetQueueImageRawState() == QUEUE_IMAGE_RAW_EMPTY)
 				taskState = eBlocked;		
 			xSemaphoreGive(queueImageRawMutex);
 		}
 		if(taskState == eBlocked)
-			ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+			xTaskNotifyWait(0, UINT32_MAX, &countNotify, portMAX_DELAY);
 		taskYIELD();
 	}
 }
 
 void SdCardSpiTask(void *pvParameters){
-	ESP_LOGI(TAG_SD_CARD_SPI_TASK, TASK_START, xPortGetCoreID());
 	QueueImageRawStateEnum state;
 	FatSdCardSpiCustomCopyState sdCardCopyState = FAT_SD_CARD_SPI_CUSTOM_COPY_OK;
 	const uint32_t length =  ledPanelConfig.style.heigth * ledPanelConfig.style.width * HUB75E_LUT_COLOR;
@@ -228,7 +223,7 @@ void SdCardSpiTask(void *pvParameters){
 				// Notify task if queue render empty
 				if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
 					if(CheckQueueVectorGdmaDescriptorsNodeState() != QUEUE_VECTOR_DESCRIPTIORS_FULL)
-						TaskNotify(&CoverntImageToVectorGdmadescriptorsNodeHandle);
+						xTaskNotify(CoverntImageToVectorGdmadescriptorsNodeHandle, 1, eSetValueWithOverwrite);
 					xSemaphoreGive(queueGdmaDescriptorsMutex);
 				}
 				
@@ -240,14 +235,8 @@ void SdCardSpiTask(void *pvParameters){
 
 //-------------------------------------------------------------------------------/
 
-void Setup(){
-	fps = 60;
-}
-
-void TaskNotify(TaskHandle_t *task){
-	if(eTaskGetState(*task) == eBlocked){
-		xTaskNotifyGive(*task);
-	}
+void SetupParameter(){
+	fps = FPS_DEFAULT;
 }
 
 void RequestNextGdmaDescriptorsNodeInQueue(){

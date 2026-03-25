@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #define LEDPANEL_GDMA_DESCRIPTORS_NODE_END										1
+#define LEDPANEL_DUMMY_PHASE													1
 
 #define LATCH_CLOCK_CYCLES														1
 #define OE_CLOCK_CYCLES															2
@@ -42,7 +43,7 @@
 
 #define OE_ENABLE_BIT															0
 #define OE_DISABLE_BIT															1
-#define OE_BIT(column, place)													( (TIME_UINT(place) >= OE_CLOCK_CYCLES ) && (column < TIME_UINT(place)) ? OE_ENABLE_BIT : OE_DISABLE_BIT)
+#define OE_BIT(enable, column, place)											((enable == 1) && (TIME_UINT(place) >= OE_CLOCK_CYCLES ) && (column < TIME_UINT(place)) ? OE_ENABLE_BIT : OE_DISABLE_BIT)
 
 #define TIME_UINT(x)															(1 << x)
 
@@ -169,7 +170,7 @@ void LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(LedPanelStyle *style, uint3
 
 void AddSignalOutputEnableLedPanel(uint16_t *buffer, uint32_t index, uint32_t address);
 
-void AddSignalClkLedPanel(uint16_t *buffer, uint32_t column, uint32_t color, uint32_t address, uint32_t bit);
+void AddSignalClkLedPanel(uint16_t *buffer, uint32_t column, uint32_t color, uint32_t address, uint32_t bit, uint32_t enable);
 
 void AddSignalLatchLedPanel(uint16_t *buffer, uint32_t index,  uint32_t color, uint32_t address);
 
