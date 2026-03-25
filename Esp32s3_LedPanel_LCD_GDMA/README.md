@@ -62,13 +62,13 @@ https://github.com/user-attachments/assets/479dea61-e4d8-4dc6-bb64-c40b707f2991
 ## Memory Calculation
 ### DMA Descriptor Memory Calculation:
 - The number of DMA descriptors required is:
-		height × n (color bitplanes)
+		height / 2 × n (color bitplanes) + 1(DUMMY PHASE)
 		
 - Each DMA descriptor requires one buffer, and each buffer must contain:
 		2 bytes × (width + 2)
 		
 - Therefore, the total buffer memory required (excluding DMA descriptor structures) can be calculated as:
-		Memory = height / 2 × (width + 2) × n × 2 bytes
+		Memory = (height / 2 × (width + 2) × n + 1) × 2 bytes
 		
 - Note: The reason for this formula will be explained in the following section.
 
