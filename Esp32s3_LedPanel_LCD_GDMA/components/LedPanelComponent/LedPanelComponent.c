@@ -260,7 +260,7 @@ void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *
 			frame++;
 			
 			bufferDestination = (uint16_t*)vector->head[frame].DW1;
-			
+			enablePixel = 1;
 			addressAfterConvert = GetAddressLedPanel(style->heigth / style->scan - 1);
 			AddSignalOutputEnableLedPanel(bufferDestination, OE_CLOCK_CYCLES_START, addressAfterConvert);
 			

@@ -1,6 +1,7 @@
 #ifndef FAT_SD_CARD_SPI_CUSTOM_H
 #define FAT_SD_CARD_SPI_CUSTOM_H
 
+#include "DirentLinkerListComponent.h"
 #include "driver/spi_common.h"
 #include "esp_vfs_fat.h"
 #include "hal/spi_types.h"
@@ -44,16 +45,6 @@ typedef struct FatSdCardSpiCustomConfig{
 	sdmmc_card_t *card;
 } FatSdCardSpiCustomConfig;
 
-typedef struct DirentNode{
-	struct DirentNode * next;
-	char *name;
-} DirentNode;
-
-typedef struct DirentLinkerList{
-	struct DirentNode *head; 
-	uint32_t size;
-} DirentLinkerList;
-
 typedef struct FileInfomation{
 	char *path;
 	uint32_t offset;
@@ -63,10 +54,6 @@ void SetFileInfomationEmty(FileInfomation *fileInformation);
 FileInfomationNameState FileInfomationNameCheck(FileInfomation *fileInformation);
 void FileInfomationInit(FileInfomation *fileInformation, uint32_t size);
 FasrSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLinkerList *list);
-void DirentLinkerListInit(DirentLinkerList *list);
-void DirentLinkerListPush(DirentLinkerList *list, DirentNode *entry);
-void DirentLinkerListDetelte(DirentLinkerList *list);
-DirentNode* DirentLinkerListGetIndex(DirentLinkerList *list, uint32_t index);
 
 FatSdCardSpiCustomCopyState CopySdCardSpiFile(char path[], uint8_t *des, uint32_t size, uint32_t offset);
 esp_err_t FatSdCardSpiCustomInit(FatSdCardSpiCustomConfig *config);

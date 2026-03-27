@@ -2,19 +2,30 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <unistd.h>
-#include "LEDPANELComponent.h"
+#include "LedPanelComponent.h"
+#include "MessageComponent.h"
 #include "QueueImageRaw.h"
+#include "QueueMessageWifi.h"
+#include "MessageComponent.h"
+#include "TcpCustom.h"
+#include "WifiCustomComponent.h"
 #include "driver/spi_common.h"
 #include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "esp_task_wdt.h"
+#include "esp_wifi_types_generic.h"
 #include "ff.h"
 #include "freertos/idf_additions.h"
 #include "freertos/projdefs.h"
 #include "hal/spi_types.h"
+#include "lwip/sockets.h"
+#include "nvs_flash.h"
 #include "portmacro.h"
 #include "soc/gpio_num.h"
 #include "FatSdCardSpiCustom.h"
 #include "sys/dirent.h"
 #include "esp_random.h"
+#include "sys/errno.h"
 
 #define LEDPANEL_WIDTH 																128
 #define LEDPANEL_HEIGTH 															64
@@ -41,7 +52,9 @@
 #define SD_CARD_CLK																	GPIO_NUM_12
 #define SD_CARD_CS																	GPIO_NUM_10
 #define SD_CARD_OPEN_MAX_FILE														5
-
+#define WIFI_MESSAGE_QUEUE_BUFFER_SIZE												(HEADER_WIFI_MESSAGE + LEDPANEL_WIDTH * LEDPANEL_HEIGTH * HUB75E_LUT_COLOR) + UINT_WIFI_MESSAFE_HEADER_MAX
+#define UINT_WIFI_MESSAFE_HEADER_MAX												500
+#define HEADER_WIFI_MESSAGE															(LENGTH_FIELD_MESSAGE_SIZE + CODE_FIELD_MESSAGE_SIZE + ULONG_MESSAGE_TYPE)
 //-------------------------------------------------------------------------------/
 #define SECOND_UINT																	1000
 #define DIRECTORY_NAME																"ImageRaw"
@@ -49,7 +62,30 @@
 #define SIZE_NAME																	256
 #define BUFFER_SIZE																	4096
 #define FPS_DEFAULT																	60
-
+#define PORT																		1111
+#define WIFI_AP_SSID 																"ESP32_LED_PANEL_WIFI"
+#define WIFI_AP_PASS 																"12345678"
+#define WIFI_NETWORK_PART															192
+#define WIFI_SUBNET_PART															168
+#define WIFI_SUBNET																	10
+#define WIFI_HOST_ID																11
+#define WIFI_CHANNEL																1
+#define WIFI_MAX_CONNECTION															4
+#define KEEPALIVE_ENABLE															1
+#define KEEPALIVE_IDLE             													15
+#define KEEPALIVE_INTERVAL          												5
+#define KEEPALIVE_COUNT             												3
+#define TCP_RECEIVE_DATA_BLOCKING													0
+#define TCP_SEND_DATA_BLOCKING														0
+#define QUEUE_MESSAGE_WIFI_LENGTH													20
+#define QUEUE_GDMA_DESCRIPTORS_SIZE													2
+#define QUEUE_IMAGE_RAW_SIZE														100
+#define GAMMA_SCALE																	2.2
+#define RED_SCALE																	1
+#define GREEN_SCALE																	0.8
+#define BLUE_SCALE																	1
+#define BLOCK_DATA_MAX																1024
+#define NO_DELAY																	0
 //-------------------------------------------------------------------------------/
 #define PATH_FILE_TEST																"/sdcard/ImageRaw/test.imgRaw"
 #define TAG_APP_MAIN																"app_main"
@@ -63,7 +99,8 @@
 #define SD_OPEN_FAIL																"Open %s fail"
 #define TASK_NOTYFI																	"Task notify cause %s"
 #define RANDOM_IMAGE_RAW_NAME														"RandomImageRawName"
-#define RANDOM_IMAGE_RAW_FAIL_CAUSE_DIRECTORY_EMPTY_CONTENT 						"RANDOM_IMAGE_RAW_FAIL_CAUSE_DIRECTORY_EMPTY_CONTENT"		
+#define RANDOM_IMAGE_RAW_FAIL_CAUSE_DIRECTORY_EMPTY_CONTENT 						"RANDOM_IMAGE_RAW_FAIL_CAUSE_DIRECTORY_EMPTY_CONTENT"	
+#define TAG_TCP_SERVER_RECEIVE_TASK													"TAG_TCP_SERVER_RECEIVE_TASK"
 //-------------------------------------------------------------------------------/
 
 typedef enum{
@@ -83,8 +120,35 @@ typedef enum{
 	RANDOM_IMAGE_RAW_NAME_FAIL_CAUSE_DIRECTORY_EMPTY
 } RandomImageRawNameState;
 
+typedef enum{
+	HEADER_CODE 							= 0x89,
+	LIST_FILE_IN_DIRECTORY_IMAGE_RAW_FOLDER = 0x33,
+	NAME_FILE_IN_LIST						= 0x53,
+	BLOCK_FILE								= 0x77,
+	TOTAL_BLOCK_IN_IN_FILE					= 0x99
+} CodeOpEnum;
+
+typedef enum{
+	READ_LIST_FILE_IN_DIRECTORY_STATE,
+	READ_FILE_STATE,
+	WRITE_FILE_STATE,
+	NONE_FILE_STATE
+} FileCommunicationState;
+
+typedef enum{
+	CLIENT_REQUEST,
+	DONE_CLIENT_REQUEST
+} ClientRequestState;
+
 //-------------------------------------------------------------------------------/
 
+typedef struct ClientRequestInformation{
+	FileInfomation fileInformation;
+	FileCommunicationState fileState;
+	ClientRequestState clientState;
+	int mSocket;
+	uint32_t block;
+} ClientRequestInformation;
 
 //-------------------------------------------------------------------------------/
 
@@ -95,11 +159,28 @@ FatSdCardSpiCustomConfig sdCardConfig;
 
 SemaphoreHandle_t queueImageRawMutex;
 SemaphoreHandle_t queueGdmaDescriptorsMutex;
+SemaphoreHandle_t queueWifiMessageReceiveMutex;
+SemaphoreHandle_t queueWifiMessageSendMutex;
+SemaphoreHandle_t clientRequestInformationMutex;
 uint32_t fps;
 struct FileInfomation ledPanelFile; 
 uint32_t timeLedPanelUpdate;
-TaskHandle_t CoverntImageToVectorGdmadescriptorsNodeHandle = NULL;
+TaskHandle_t coverntImageToVectorGdmadescriptorsNodeHandle = NULL;
+TaskHandle_t tcpServerReceiveTaskHandle = NULL;
+TaskHandle_t tcpServerSendTaskHandle = NULL;
+TaskHandle_t handleWifiMessageTaskHandle = NULL;
+int tcpServerSocket;
+WifiMessageQueue queueMessageReceive;
+WifiMessageQueue queueMessageSend;
+ClientRequestInformation mClientRequestInformation;
+
 //-------------------------------------------------------------------------------/
+void HandleClientRequest(ClientRequestInformation *clientRequest);
+void ReadFileRequest(uint8_t *path, uint32_t length, ClientRequestInformation *clientRequest);
+int GetWifiMessageHeader(int *socket, uint8_t *buffer, uint32_t size);
+int GetWifiMessageContent(int *socket, uint8_t *buffer, uint32_t size);
+void TcpServerConfig();
+void WifiConfig();
 void RequestNextGdmaDescriptorsNodeInQueue();
 RandomImageRawNameState RandomImageRawName(char *path);
 void LedPanelConfigInit(LedPanelConfig *config);
@@ -108,18 +189,36 @@ void FatSdCardSpiCustomConfigInit(FatSdCardSpiCustomConfig *config);
 void LedPanelTask(void *pvParameters);
 void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters);
 void SdCardSpiTask(void *pvParameters);
-
+void TcpServerReceiveTask(void *pvParameter);
+void TcpServerSendTask(void* pvParameter);
 void SemaphoreInit();
 void CreateTask();
 void SetupParameter();
+void QueueWifiMessageConfig();
+int  TcpSendBlock(int *mSocket, uint8_t *buffer, uint32_t size, esp_task_wdt_user_handle_t *wdtUser);
+void HandleWifiMessageTask(void* pvParameter);
+
+void HandleMessage(WifiMessage *message, ClientRequestInformation *clientRequest);
+void ReadListFileRequest(ClientRequestInformation *clientRequest);
+void ReadListFileInImageRawFolder(ClientRequestInformation *clientRequest);
+void ReadListFileRequest(ClientRequestInformation *clientRequest);
+void SetDoneHandleRequestClineInfomation(ClientRequestInformation *clientRequest);
+void ReadFileInFolder(ClientRequestInformation *clientRequest);
+ClientRequestState GetClientRequestState(ClientRequestInformation *clientInformation);
+FileCommunicationState GetClientFileCommunicationState(ClientRequestInformation *clientInformation);
+//-------------------------------------------------------------------------------/
 
 void app_main(void)
 {
 	SetupParameter();
 	ESP_LOGI(TAG_APP_MAIN, APP_MAIN_INIT);
+	QueueWifiMessageConfig();
+	WifiConfig();
+	TcpServerConfig();
 	FatSdCardSpiCustomConfigInit(&sdCardConfig);
 	LedPanelConfigInit(&ledPanelConfig);
 	FileInfomationInit(&ledPanelFile, SIZE_NAME);
+	FileInfomationInit(&mClientRequestInformation.fileInformation, SIZE_NAME);
 	SemaphoreInit();
 	CreateTask();
 }
@@ -130,7 +229,7 @@ void CreateTask(){
 	xTaskCreatePinnedToCore(
         LedPanelTask,
         "LedPanelTask",
-        4096,
+        3072,
         NULL,
         FREE_RTOS_PRIORITY_REAL_TIME,
         NULL,
@@ -139,21 +238,192 @@ void CreateTask(){
     xTaskCreatePinnedToCore(
         CoverntImageToVectorGdmadescriptorsNodeTask,
         "CoverntImageToVectorGdmadescriptorsNodeTask",
-        8192,
+        3072,
         NULL,
         FREE_RTOS_PRIORITY_HIGH,
-        &CoverntImageToVectorGdmadescriptorsNodeHandle,
+        &coverntImageToVectorGdmadescriptorsNodeHandle,
         CORE_1
     );
     xTaskCreatePinnedToCore(
         SdCardSpiTask,
         "SdCardSpiTask",
-        8192,
+        3072,
         NULL,
         FREE_RTOS_PRIORITY_MEDIUM,
         NULL,
         CORE_1
     );
+	xTaskCreatePinnedToCore(
+        TcpServerReceiveTask,
+        "TcpServerReceiveTask",
+        3072,
+        NULL,
+        FREE_RTOS_PRIORITY_REAL_TIME,
+        &tcpServerReceiveTaskHandle,
+        CORE_0
+    );
+    xTaskCreatePinnedToCore(
+        TcpServerSendTask,
+        "TcpServerSendTask",
+        3072,
+        NULL,
+        FREE_RTOS_PRIORITY_HIGH,
+        &tcpServerSendTaskHandle,
+        CORE_0
+    );
+    xTaskCreatePinnedToCore(
+        HandleWifiMessageTask,
+        "HandleWifiMessageTask",
+        3072,
+        NULL,
+        FREE_RTOS_PRIORITY_MEDIUM,
+        &handleWifiMessageTaskHandle,
+        CORE_1
+    );
+}
+
+void HandleWifiMessageTask(void* pvParameter){
+	WifiMessage *message;
+	esp_task_wdt_user_handle_t wdtUser;
+	QueueWifiMessageStateEnum queueState;
+	while(1){
+		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);	
+		queueState = QUEUE_WIFI_MESSAGE_NORMAL;
+		esp_task_wdt_add_user("HandleWifiMessageTask", &wdtUser);
+		while(queueState != QUEUE_WIFI_MESSAGE_EMPTY){
+			if(xSemaphoreTake(queueWifiMessageReceiveMutex, portMAX_DELAY) == pdTRUE){
+				queueState = QueueWifiMessageState(&queueMessageReceive);
+				if(queueState != QUEUE_WIFI_MESSAGE_EMPTY){
+					message = PeekHeadQueueWifiMessage(&queueMessageReceive);
+					ESP_LOGE("Data receive", "Receive %lu data", (unsigned long) message->length);
+					for(uint32_t i = 0; i < message->length; i++)
+						ESP_LOGE("Data receive", "%02X ", message->buffer[i]);
+					HandleMessage(message, &mClientRequestInformation);
+					QueueWifiMessagePop(&queueMessageReceive);
+					esp_task_wdt_reset_user(wdtUser);
+				}
+				xSemaphoreGive(queueWifiMessageReceiveMutex);
+			}
+		}
+		esp_task_wdt_delete_user(wdtUser);
+	}
+}
+
+void TcpServerSendTask(void* pvParameter){
+	int headerSizeSend;
+	uint32_t headerSize;
+	WifiMessage *wifiMessage;
+	uint8_t *buffer;
+	uint8_t headerBuffer[HEADER_WIFI_MESSAGE];
+	QueueWifiMessageStateEnum queueState;
+	esp_task_wdt_user_handle_t wdtUser;
+	while(1){
+		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+		queueState = QUEUE_WIFI_MESSAGE_NORMAL;
+		esp_task_wdt_add_user("HandleWifiMessageTask", &wdtUser);
+		while(queueState != QUEUE_WIFI_MESSAGE_EMPTY){
+			if(xSemaphoreTake(queueWifiMessageSendMutex, portMAX_DELAY) == pdTRUE){
+				queueState = QueueWifiMessageState(&queueMessageSend);
+				if(queueState != QUEUE_WIFI_MESSAGE_EMPTY){
+					wifiMessage = PeekHeadQueueWifiMessage(&queueMessageSend);
+					buffer = wifiMessage->buffer;
+					headerSize = AddUlongToMessage(headerBuffer, HEADER_CODE, wifiMessage->length);
+					headerSizeSend = send(wifiMessage->client, headerBuffer, headerSize, TCP_SEND_DATA_BLOCKING);
+					
+					if(headerSize == headerSizeSend){
+						TcpSendBlock(&wifiMessage->client, buffer, wifiMessage->length, &wdtUser);
+					}
+					ESP_LOGE("Count message send", "Send message!");
+					QueueWifiMessagePop(&queueMessageSend);
+				}
+				xSemaphoreGive(queueWifiMessageSendMutex);
+			}
+		}
+		esp_task_wdt_delete_user(wdtUser);
+	}
+}
+
+void TcpServerReceiveTask(void *pvParameter){
+    struct sockaddr_storage sourceAddr;
+    socklen_t addrLen = sizeof(sourceAddr);
+    int clientSocket;
+    int keepAlive = KEEPALIVE_ENABLE;
+    int keepIdle = KEEPALIVE_IDLE;
+    int keepInterval = KEEPALIVE_INTERVAL;
+    int keepCount = KEEPALIVE_COUNT;
+    uint8_t *buffer = NULL;
+    eTaskState taskState;
+    WifiMessage *wifiMessage = NULL;
+    int headerSize;
+    uint32_t contentSize;
+    uint8_t headerBuffer[HEADER_WIFI_MESSAGE];
+    int contentReceive;
+    HeaderFieldMessage infoMessage;
+    uint32_t countNotify;
+    QueueWifiMessageStateEnum queueReceveState = QUEUE_WIFI_MESSAGE_NORMAL;
+	while(1){
+		TcpCustomAccept(&tcpServerSocket, &sourceAddr, &addrLen, &clientSocket);
+		if(clientSocket < 0){
+            ESP_LOGE(TAG_TCP_SERVER_RECEIVE_TASK, "Unable to accept connection: errno %d", errno);
+            break;
+		}
+		TcpServerSetKeepAlive(&clientSocket, &keepAlive, &keepIdle, &keepInterval, &keepCount);
+		
+		while(1){
+			taskState = eReady;
+			if(xSemaphoreTake(queueWifiMessageReceiveMutex, portMAX_DELAY) == pdTRUE){
+				wifiMessage = PeekTailQueueWifiMessage(&queueMessageReceive);
+				xSemaphoreGive(queueWifiMessageReceiveMutex);
+				buffer = wifiMessage->buffer;
+			}
+			headerSize = GetWifiMessageHeader(&clientSocket, headerBuffer, HEADER_WIFI_MESSAGE);
+			
+			if(headerSize == EAI_AGAIN || headerSize == ETIMEDOUT){
+				ESP_LOGE(TAG_TCP_SERVER_RECEIVE_TASK, "Client timeout!");
+				break;
+			} else if(headerSize == 0){
+				ESP_LOGE(TAG_TCP_SERVER_RECEIVE_TASK, "Client disconnect!");
+				break;
+			}
+			
+			GetFieldInMessage(headerBuffer, &infoMessage);
+			if(infoMessage.code != HEADER_CODE){
+				ESP_LOGE(TAG_TCP_SERVER_RECEIVE_TASK, "Header invalid!");
+				continue;
+			}
+			contentSize = GetUlongInMessage(headerBuffer);
+			
+			if(contentSize == 0){
+				ESP_LOGE(TAG_TCP_SERVER_RECEIVE_TASK, "Size Message invalid!");
+				continue;
+			}
+			contentReceive = GetWifiMessageContent(&clientSocket, buffer, contentSize);
+			if(contentReceive != contentSize){
+				ESP_LOGE(TAG_TCP_SERVER_RECEIVE_TASK, "Message missing data!");
+				break;
+			}
+			ESP_LOGE("PACKET", "PACKET READY");
+			wifiMessage->client = clientSocket;
+			wifiMessage->length = contentReceive;
+			do{
+				if(xSemaphoreTake(queueWifiMessageReceiveMutex, portMAX_DELAY) == pdTRUE){
+					queueReceveState = QueueWifiMessageState(&queueMessageReceive);
+					if(queueReceveState == QUEUE_WIFI_MESSAGE_FULL){
+						taskState = eBlocked;
+					} else{
+						QueueWifiMessagePush(&queueMessageReceive);
+						xTaskNotifyGive(handleWifiMessageTaskHandle);
+					}
+					xSemaphoreGive(queueWifiMessageReceiveMutex);
+				}
+
+				if(taskState == eBlocked)
+					xTaskNotifyWait(0, UINT32_MAX, &countNotify, portMAX_DELAY);	
+			}
+			while(queueReceveState == QUEUE_WIFI_MESSAGE_FULL);
+		}
+		close(clientSocket);
+	}
 }
 
 void LedPanelTask(void *pvParameters){
@@ -198,13 +468,14 @@ void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters){
 }
 
 void SdCardSpiTask(void *pvParameters){
+	eTaskState taskNotify;
 	QueueImageRawStateEnum state;
 	FatSdCardSpiCustomCopyState sdCardCopyState = FAT_SD_CARD_SPI_CUSTOM_COPY_OK;
 	const uint32_t length =  ledPanelConfig.style.heigth * ledPanelConfig.style.width * HUB75E_LUT_COLOR;
 	uint8_t *des;
 	while (1) {
-		ESP_LOGI(TAG_SD_CARD_SPI_TASK, TASK_RUNNING);
-		if(xSemaphoreTake(queueImageRawMutex, portMAX_DELAY) == pdTRUE){
+		taskNotify = eBlocked;
+		if(xSemaphoreTake(queueImageRawMutex, NO_DELAY) == pdTRUE){
 			if((state = GetQueueImageRawState()) != QUEUE_IMAGE_RAW_FULL){
 
 				des = PeekTailQueueImageRaw();
@@ -218,25 +489,172 @@ void SdCardSpiTask(void *pvParameters){
 				}
 				else
 					SetFileInfomationEmty(&ledPanelFile);
-				
-				// Notify task if queue render empty
-				if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
-					if(CheckQueueVectorGdmaDescriptorsNodeState() != QUEUE_VECTOR_DESCRIPTIORS_FULL)
-						xTaskNotify(CoverntImageToVectorGdmadescriptorsNodeHandle, 1, eSetValueWithOverwrite);
-					xSemaphoreGive(queueGdmaDescriptorsMutex);
-				}
-				
 			}
 			xSemaphoreGive(queueImageRawMutex);	
 		}
+		
+		// Notify task if queue render empty
+		if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
+			if(CheckQueueVectorGdmaDescriptorsNodeState() != QUEUE_VECTOR_DESCRIPTIORS_FULL)
+				taskNotify = eReady;
+			xSemaphoreGive(queueGdmaDescriptorsMutex);
+		}
+		
+		if(taskNotify == eReady)
+			xTaskNotify(coverntImageToVectorGdmadescriptorsNodeHandle, 1, eSetValueWithOverwrite);
+			
+		
+		if(xSemaphoreTake(clientRequestInformationMutex, NO_DELAY) == pdTRUE){
+			if(GetClientRequestState(&mClientRequestInformation) == CLIENT_REQUEST){
+				HandleClientRequest(&mClientRequestInformation);
+			}
+			xSemaphoreGive(clientRequestInformationMutex);
+		}
+		
 		taskYIELD();
 	}
 }
 
 //-------------------------------------------------------------------------------/
+void HandleClientRequest(ClientRequestInformation *clientRequest){
+	FileCommunicationState state = GetClientFileCommunicationState(clientRequest);
+	if(state == READ_LIST_FILE_IN_DIRECTORY_STATE)
+		ReadListFileInImageRawFolder(clientRequest);
+	else if(state == READ_FILE_STATE)
+		ReadFileInFolder(clientRequest);
+}
+
+void HandleMessage(WifiMessage *message, ClientRequestInformation *clientRequest){
+	HeaderFieldMessage info;
+	clientRequest->clientState = CLIENT_REQUEST;
+	clientRequest->mSocket = message->client;
+	GetFieldInMessage( message->buffer, &info);
+	if(xSemaphoreTake(clientRequestInformationMutex, portMAX_DELAY) == pdTRUE){
+		if(info.code == READ_LIST_FILE_IN_DIRECTORY_STATE)
+			ReadListFileRequest(clientRequest);
+		else if(info.code == READ_FILE_STATE){
+			ReadFileRequest(message->buffer + CONTENT_FIELD_MESSAGE_START, info.length, clientRequest);
+		}
+		xSemaphoreGive(clientRequestInformationMutex);
+	}
+}
+
+void ReadFileRequest(uint8_t *path, uint32_t length, ClientRequestInformation *clientRequest){
+	clientRequest->fileState = READ_FILE_STATE;
+	clientRequest->block = 0;
+	memcpy(mClientRequestInformation.fileInformation.path, PATH_DIR_IMAGE_RAW, strlen(PATH_DIR_IMAGE_RAW));
+	memcpy(mClientRequestInformation.fileInformation.path + strlen(PATH_DIR_IMAGE_RAW), path, length);
+	mClientRequestInformation.fileInformation.path[strlen(PATH_DIR_IMAGE_RAW) + length] = FAT_SD_CARD_SPI_CUSTOM_END_FILE;
+}
+
+void ReadListFileRequest(ClientRequestInformation *clientRequest){
+	clientRequest->fileState = READ_LIST_FILE_IN_DIRECTORY_STATE;
+}
+
+void SetDoneHandleRequestClineInfomation(ClientRequestInformation *clientRequest){
+	clientRequest->clientState = DONE_CLIENT_REQUEST;
+}
+void ReadFileInFolder(ClientRequestInformation *clientRequest){
+	const uint32_t length =  ledPanelConfig.style.heigth * ledPanelConfig.style.width * HUB75E_LUT_COLOR;
+	SetDoneHandleRequestClineInfomation(clientRequest);
+	WifiMessage *desWifi = PeekTailQueueWifiMessage(&queueMessageSend);
+	FatSdCardSpiCustomCopyState sdCardCopyState = CopySdCardSpiFile(mClientRequestInformation.fileInformation.path, desWifi->buffer + CONTENT_FIELD_MESSAGE_START, length, ledPanelFile.offset);
+	if(sdCardCopyState == FAT_SD_CARD_SPI_CUSTOM_COPY_OK){
+		mClientRequestInformation.fileInformation.offset += length;
+		AddHeaderFieldMessage(desWifi->buffer, BLOCK_FILE, length);
+	} else {
+		AddUlongToMessage(desWifi->buffer, TOTAL_BLOCK_IN_IN_FILE, mClientRequestInformation.fileInformation.offset / length);
+	}
+	// add message done
+	QueueWifiMessagePush(&queueMessageSend);
+}
+
+void ReadListFileInImageRawFolder(ClientRequestInformation *clientRequest){
+	DirentLinkerList list;
+	GetListFileSdCardSPI(PATH_DIR_IMAGE_RAW, &list);
+	if(xSemaphoreTake(queueWifiMessageSendMutex, portMAX_DELAY) == pdTRUE){
+		WifiMessage *desWifi = PeekTailQueueWifiMessage(&queueMessageSend);
+		desWifi->client = clientRequest->mSocket;
+		uint32_t length = AddUlongToMessage((uint8_t*)desWifi->buffer, LIST_FILE_IN_DIRECTORY_IMAGE_RAW_FOLDER, list.size);
+		if(list.size != 0){
+			length += AddListToMessage((uint8_t*)desWifi->buffer + length, NAME_FILE_IN_LIST, &list);
+		}
+		desWifi->length = length;
+		QueueWifiMessagePush(&queueMessageSend);
+		xSemaphoreGive(queueWifiMessageSendMutex);
+	}
+	xTaskNotifyGive(tcpServerSendTaskHandle);
+	SetDoneHandleRequestClineInfomation(clientRequest);
+}
+
+FileCommunicationState GetClientFileCommunicationState(ClientRequestInformation *clientInformation){
+	return clientInformation->fileState;
+}
+
+ClientRequestState GetClientRequestState(ClientRequestInformation *clientInformation){
+	return clientInformation->clientState;
+}
+
+int TcpSendBlock(int *mSocket, uint8_t *buffer, uint32_t size, esp_task_wdt_user_handle_t *wdtUser){
+	int sendSize = 0;
+	uint32_t dataReceiveSize = 0;
+	uint32_t blockSize;
+	while(sendSize < size){
+		blockSize = (size - sendSize) > BLOCK_DATA_MAX ? BLOCK_DATA_MAX : (size - sendSize);
+		dataReceiveSize = send(*mSocket, buffer + sendSize, blockSize, TCP_SEND_DATA_BLOCKING);
+		esp_task_wdt_reset_user(*wdtUser);
+		if(dataReceiveSize < 1)
+			return sendSize;
+		sendSize += dataReceiveSize;
+	}
+	return sendSize;
+}
+
+int GetWifiMessageHeader(int *socket, uint8_t *buffer, uint32_t size){
+	return recv(*socket, buffer, size, TCP_RECEIVE_DATA_BLOCKING);
+}
+int GetWifiMessageContent(int *socket, uint8_t *buffer, uint32_t size){
+	int receive = 0;
+	uint32_t dataReceiveSize = 0;
+	while(receive < size){
+		dataReceiveSize = recv(*socket, buffer + receive, size, TCP_RECEIVE_DATA_BLOCKING);
+		if(dataReceiveSize < 1)
+			break;
+		receive += dataReceiveSize;
+	}
+	return receive;
+}
+
+void TcpServerConfig(){
+	TcpCustomInit(&tcpServerSocket, PORT);
+}
+void WifiConfig(){
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+      ESP_ERROR_CHECK(nvs_flash_erase());
+      ret = nvs_flash_init();
+    }
+    wifi_config_t config = {
+        .ap = {
+            .ssid = WIFI_AP_SSID,
+            .ssid_len = strlen(WIFI_AP_SSID),
+            .channel = 1,
+            .password = WIFI_AP_PASS,
+            .max_connection = WIFI_MAX_CONNECTION,
+            .authmode = WIFI_AUTH_WPA_WPA2_PSK,
+            .ssid_hidden = 0,
+            .bss_max_idle_cfg = {
+                .period = WIFI_AP_DEFAULT_MAX_IDLE_PERIOD,
+                .protected_keep_alive = 1,
+            }
+        }
+    };
+    WifiCustomInit(&config, WIFI_NETWORK_PART, WIFI_SUBNET_PART, WIFI_SUBNET, WIFI_HOST_ID);
+}
 
 void SetupParameter(){
 	fps = FPS_DEFAULT;
+	SetDoneHandleRequestClineInfomation(&mClientRequestInformation);
 }
 
 void RequestNextGdmaDescriptorsNodeInQueue(){
@@ -295,10 +713,10 @@ void LedPanelConfigInit(LedPanelConfig *config){
 	config->style.heigth = LEDPANEL_HEIGTH;
 	config->style.scan = LEDPANEL_SCAN_2_PART;
 	config->style.color = LEDPANEL_RGB888;
-	config->style.gamma = 2.2;
-	config->style.redScale = 1;
-	config->style.greenScale = 0.8;
-	config->style.blueScale= 1;
+	config->style.gamma = GAMMA_SCALE;
+	config->style.redScale = RED_SCALE;
+	config->style.greenScale = GREEN_SCALE;
+	config->style.blueScale= BLUE_SCALE;
 	
 	gpio_num_t ledPanelPin[] = {
 		LEDPANEL_PIN_R1, LEDPANEL_PIN_G1, LEDPANEL_PIN_B1,
@@ -307,10 +725,18 @@ void LedPanelConfigInit(LedPanelConfig *config){
 		 LEDPANEL_PIN_LATCH, LEDPANEL_PIN_OE, LEDPANEL_PIN_CLK
 	};
 	
-	LedPanelInit(config, ledPanelPin, 2, 200);
+	LedPanelInit(config, ledPanelPin, QUEUE_GDMA_DESCRIPTORS_SIZE, QUEUE_IMAGE_RAW_SIZE);
+}
+
+void QueueWifiMessageConfig(){
+	QueueWifiMessageBufferInit(&queueMessageSend, QUEUE_MESSAGE_WIFI_LENGTH, WIFI_MESSAGE_QUEUE_BUFFER_SIZE);
+	QueueWifiMessageBufferInit(&queueMessageReceive, QUEUE_MESSAGE_WIFI_LENGTH, WIFI_MESSAGE_QUEUE_BUFFER_SIZE);
 }
 
 void SemaphoreInit(){
 	queueImageRawMutex = xSemaphoreCreateMutex();
 	queueGdmaDescriptorsMutex = xSemaphoreCreateMutex();
+	queueWifiMessageReceiveMutex = xSemaphoreCreateMutex();
+	queueWifiMessageSendMutex = xSemaphoreCreateMutex();
+	clientRequestInformationMutex = xSemaphoreCreateMutex();
 }
