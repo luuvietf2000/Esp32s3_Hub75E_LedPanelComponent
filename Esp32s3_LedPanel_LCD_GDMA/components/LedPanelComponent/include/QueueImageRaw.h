@@ -23,6 +23,7 @@ typedef struct QueueImageRaw{
 	uint32_t front;
 	uint32_t width;
 	uint32_t heigth;
+	uint32_t count;
 } QueueImageRaw;
 
 typedef enum{

@@ -63,7 +63,7 @@ void GdmaCheckVectorGdmaDescriptorsNode(VectorGdmaDescriptorsNode *vector){
 void LedPanelRemoveBuffer(){
 	for(uint32_t i = 0; i < queueVectorGdmaDescriptorsNode->size; i++)
 		VectorGdmaDescriptorsNodeClear(&(queueVectorGdmaDescriptorsNode + i)->vector);
-	queueVectorGdmaDescriptorsNode->size = 0;
+	queueVectorGdmaDescriptorsNode->size = 	queueVectorGdmaDescriptorsNode->rear = queueVectorGdmaDescriptorsNode->front = queueVectorGdmaDescriptorsNode->count = 0;
 }
 
 LedPanelTransmitState GetLedpanelState(LedPanelConfig *config){
@@ -80,9 +80,9 @@ void LedPanelStop(LedPanelConfig *config){
 }
 
 void LedPanelResetHW(LedPanelConfig *config){
-	queueVectorGdmaDescriptorsNode->rear = queueVectorGdmaDescriptorsNode->front = -1;
+	queueVectorGdmaDescriptorsNode->rear = queueVectorGdmaDescriptorsNode->front = queueVectorGdmaDescriptorsNode->count = 0;
 	DisableGmdaTransmit(config->gdmaConfig.channel);
-	ResetGdmaChanelAndFifoPointer(config->gdmaConfig.channel);
+	ResetGdmaChanelAndFifoPointer(config->gdmaConfig.channel); 
 	LcdStop();
 	ResetLcdCtrlAndTxFIFO();
 }
@@ -96,6 +96,7 @@ QueueVectorGdmaDescriptorsNodePushState QueueVectorGdmaDescriptorsNodePush(LedPa
 	int nextIndex = NextIndexQueueVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->front);
 	LedPanelConvertFrameData(&(queueVectorGdmaDescriptorsNode + nextIndex)->vector, &config->style, buffer);
 	queueVectorGdmaDescriptorsNode->front = nextIndex;
+	queueVectorGdmaDescriptorsNode->count++;
 	return QUEUE_VECTOR_DESCRIPTIORS_PUSH_OK;
 }
 
@@ -103,22 +104,23 @@ LedPanelStartTransmitState RequestNextVectorGdmaDescriptorsNode(LedPanelConfig *
 	QueueVectorGdmaDescriptorsNodeState queueState = CheckQueueVectorGdmaDescriptorsNodeState();
 	if(queueVectorGdmaDescriptorsNode->size != 1 && queueState == QUEUE_VECTOR_DESCRIPTIORS_EMPTY)
 		return LEDPANEL_START_TRANSMIT_FAIL_CAUSE_NO_GDMA_DESCRIPTORS_NODE_NEXT;
-	int indexNext = NextIndexQueueVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->rear);
+	uint32_t indexNext = NextIndexQueueVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->rear);
 	LedPanelStartTransmitState state = LedPanelStartTransmit(config, &((queueVectorGdmaDescriptorsNode + indexNext)->vector));
 	queueVectorGdmaDescriptorsNode->rear = indexNext;
+	queueVectorGdmaDescriptorsNode->count--;
 	return state;
 }
 
 QueueVectorGdmaDescriptorsNodeState CheckQueueVectorGdmaDescriptorsNodeState(){
-	if(queueVectorGdmaDescriptorsNode->rear == queueVectorGdmaDescriptorsNode->front)
+	if(queueVectorGdmaDescriptorsNode->count < 2)
 		return QUEUE_VECTOR_DESCRIPTIORS_EMPTY;
-	else if(NextIndexQueueVectorGdmaDescriptorsNode(queueVectorGdmaDescriptorsNode->front) == queueVectorGdmaDescriptorsNode->rear)
+	else if(queueVectorGdmaDescriptorsNode->count == queueVectorGdmaDescriptorsNode->size)
 		return QUEUE_VECTOR_DESCRIPTIORS_FULL;
 	else 
 		return QUEUE_VECTOR_DESCRIPTIORS_NORMAL;
 }
 
-int NextIndexQueueVectorGdmaDescriptorsNode(int index){
+uint32_t NextIndexQueueVectorGdmaDescriptorsNode(uint32_t index){
 	return (index + 1) % queueVectorGdmaDescriptorsNode->size;
 }
 
@@ -129,7 +131,7 @@ QueueVectorGdmaDescriptorsNodeInitState QueueVectorGdmaDescriptorsNodeInit(LedPa
 		return QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_QUEUE_FAIL;
 	}
 	queueVectorGdmaDescriptorsNode->size = size;
-	queueVectorGdmaDescriptorsNode->rear = queueVectorGdmaDescriptorsNode->front = 0;
+	queueVectorGdmaDescriptorsNode->rear = queueVectorGdmaDescriptorsNode->front = queueVectorGdmaDescriptorsNode->count = 0;
 	uint32_t bufferSize, vectorLength;
 	LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(style, &vectorLength, &bufferSize);
 	for(uint32_t i = 0; i < size; i++){

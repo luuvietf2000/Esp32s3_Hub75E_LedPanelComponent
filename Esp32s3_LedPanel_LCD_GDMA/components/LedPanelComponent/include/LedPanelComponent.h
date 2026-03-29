@@ -139,6 +139,7 @@ typedef struct QueueVectorGdmaDescriptorsNode{
 	uint32_t size;
 	uint32_t rear;
 	uint32_t front; 
+	uint32_t count;
 }QueueVectorGdmaDescriptorsNode;
 
 static struct QueueVectorGdmaDescriptorsNode *queueVectorGdmaDescriptorsNode;
@@ -158,7 +159,7 @@ LedPanelTransmitState GetLedpanelState(LedPanelConfig *config);
 
 QueueVectorGdmaDescriptorsNodePushState QueueVectorGdmaDescriptorsNodePush(LedPanelConfig *config, uint8_t *buffer);
 
-int NextIndexQueueVectorGdmaDescriptorsNode(int index);
+uint32_t NextIndexQueueVectorGdmaDescriptorsNode(uint32_t index);
 
 LedPanelStartTransmitState RequestNextVectorGdmaDescriptorsNode(LedPanelConfig *config);
 

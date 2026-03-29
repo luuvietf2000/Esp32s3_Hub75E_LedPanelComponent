@@ -27,6 +27,7 @@ QueueImagePopStateEnum PopQueueImageRaw(){
 	if(state != QUEUE_IMAGE_RAW_EMPTY){
 		 uint32_t indeNext = GetNextIndexQueueImageRaw(queueImageRaw->rear);
 		 queueImageRaw->rear = indeNext;
+		 queueImageRaw->count--;
 		 return QUEUE_IMAGE_RAW_POP_OK;
 	}
 	ESP_LOGI(TAG_QUEUE_IMAGE_REQUEST_NEXT, QUEUE_IMAGE_RAW_POP_FAIL_CAUSE_QUEUE_EMPTY_CONTENT);
@@ -38,6 +39,7 @@ QueueImagePushStateEnum PushQueuueImageRaw(){
 	if(state != QUEUE_IMAGE_RAW_FULL){
 		 uint32_t indeNext = GetNextIndexQueueImageRaw(queueImageRaw->front);
 		 queueImageRaw->front = indeNext;
+		 queueImageRaw->count++;
 		 return QUEUE_IMAGE_RAW_PUSH_OK;
 	}
 	ESP_LOGI(TAG_QUEUE_IMAGE_REQUEST_NEXT, QUEUE_IMAGE_RAW_REQUEST_NEXT_FAIL_CAUSE_QUEUE_FULL_CONTENT);
@@ -53,10 +55,9 @@ uint8_t* PeekTailQueueImageRaw(){
 }
 
 QueueImageRawStateEnum GetQueueImageRawState(){
-	int indexNext = GetNextIndexQueueImageRaw(queueImageRaw->front);
-	if(queueImageRaw->front == queueImageRaw->rear)
+	if(queueImageRaw->count == 0)
 		return QUEUE_IMAGE_RAW_EMPTY;
-	else if(indexNext == queueImageRaw->front)
+	else if(queueImageRaw->count == queueImageRaw->size)
 		return QUEUE_IMAGE_RAW_FULL;
 	return QUEUE_IMAGE_RAW_NOMAL;
 }
@@ -94,6 +95,7 @@ QueueImageInitEnum QueueImageRawInit(int size, uint32_t width, uint32_t heigth){
 		ESP_LOGE(TAG_QUEUE_IMAGE_RAW_INIT, QUEUE_IMAGE_RAW_INIT_FAIL_CAUSE_ALLOCATION_QUEUE_FAIL_CONTENT);
 		return QUEUE_IMAGE_RAW_INIT_FAIL_CAUSE_ALLOCATION_QUEUE_FAIL;
 	}
+	queueImageRaw->count = 0;
 	queueImageRaw->front = queueImageRaw->rear = 0;
 	queueImageRaw->size = size;
 	queueImageRaw->heigth = heigth;
