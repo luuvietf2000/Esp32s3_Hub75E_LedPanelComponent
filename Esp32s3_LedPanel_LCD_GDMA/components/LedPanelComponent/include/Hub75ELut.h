@@ -27,13 +27,13 @@ typedef enum{
 	B_LUT_GAMMA_INDEX
 }HUB75E_LUT_GAMMA_INDEX;
 
-static float lutGamma[HUB75E_LUT_COLOR][HUB75E_LUT_LEVEL];
+uint8_t HUB75ELutGetSingelColor(HUB75E_LUT_GAMMA_INDEX index, uint8_t level);
 
 uint32_t Hub75EScaleBitGammaPixel(uint32_t color, uint32_t indexLutGamma, uint32_t mask, uint32_t start, uint32_t bit);
 
 void Hub75EScaleLutGammaLedPanel(uint32_t index, float scale);
 
-void Hub75ELutInit(float gammaLut, float redScale, float greenScale, float blueScale);
+void Hub75ELutInit(uint8_t bit, float gammaLut, float redScale, float greenScale, float blueScale);
 
 uint32_t Hub75ELutGetColor(uint32_t color, uint32_t bit);
 

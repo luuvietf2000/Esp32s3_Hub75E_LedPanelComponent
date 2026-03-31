@@ -103,7 +103,6 @@ esp_err_t FatSdCardSpiCustomInit(FatSdCardSpiCustomConfig *config){
 	sdmmc_host_t host = SDSPI_HOST_DEFAULT();
 	//host.slot = SPI3_HOST;
 	config->host = host;
-	config->host.max_freq_khz = 4000;
 	esp_err_t ret = spi_bus_initialize(config->host.slot, &config->spiConfig, config->channelDma);
 	if (ret != ESP_OK) {
 	    ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM_INIT, FAT_SD_CARD_SPI_CUSTOM_INIT_FAIL_INITIALIZE_SPI_BUS_CONTENT);

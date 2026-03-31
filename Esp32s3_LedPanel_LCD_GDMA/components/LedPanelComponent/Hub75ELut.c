@@ -2,7 +2,9 @@
 #include <math.h>
 #include <stdint.h>
 
-void Hub75ELutInit(float gammaLut, float redScale, float greenScale, float blueScale){
+static float lutGamma[HUB75E_LUT_COLOR][HUB75E_LUT_LEVEL];
+
+void Hub75ELutInit(uint8_t bit, float gammaLut, float redScale, float greenScale, float blueScale){
 	float red = GetScaleColorHub75E(redScale);
 	float green = GetScaleColorHub75E(greenScale);
 	float blue = GetScaleColorHub75E(blueScale);
@@ -18,6 +20,13 @@ void Hub75ELutInit(float gammaLut, float redScale, float greenScale, float blueS
 	Hub75EScaleLutGammaLedPanel(G_LUT_GAMMA_INDEX, green);
 	Hub75EScaleLutGammaLedPanel(B_LUT_GAMMA_INDEX, blue);
 	
+	for(uint32_t index = 0; index < HUB75E_LUT_COLOR; index++)
+		for(uint32_t level = 0; level < HUB75E_LUT_LEVEL; level++)
+			lutGamma[index][level] = (uint8_t)round(lutGamma[index][level] / ((1 << HUB75E_RGB_COLOR_BIT_SINGLE) - 1) * ((1 << bit) - 1));
+}
+
+uint8_t HUB75ELutGetSingelColor(HUB75E_LUT_GAMMA_INDEX index, uint8_t level){
+	return lutGamma[index][level];
 }
 
 void Hub75EScaleLutGammaLedPanel(uint32_t index, float scale){

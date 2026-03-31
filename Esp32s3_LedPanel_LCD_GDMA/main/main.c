@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include "DmascriporsManager.h"
 #include "LedPanelComponent.h"
 #include "MessageComponent.h"
 #include "QueueImageRaw.h"
@@ -13,6 +14,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 #include "esp_wifi_types_generic.h"
 #include "ff.h"
 #include "freertos/idf_additions.h"
@@ -56,6 +58,7 @@
 #define UINT_WIFI_MESSAFE_HEADER_MAX												500
 #define HEADER_WIFI_MESSAGE															(LENGTH_FIELD_MESSAGE_SIZE + CODE_FIELD_MESSAGE_SIZE + ULONG_MESSAGE_TYPE)
 #define BYTE_IN_FRAME																(LEDPANEL_WIDTH * LEDPANEL_HEIGTH * HUB75E_LUT_COLOR)		
+#define SD_CARD_FREQ																10000
 //-------------------------------------------------------------------------------/
 #define SECOND_UINT																	1000
 #define DIRECTORY_NAME																"ImageRaw"
@@ -156,17 +159,14 @@ typedef struct ClientRequestInformation{
 	uint32_t codeMsg;
 } ClientRequestInformation;
 
-
-
 //-------------------------------------------------------------------------------/
 
+QueueImageRaw ledPanelImageRaw;
+ImageRaw imageRawInternal;
 const char pathImageRawFolder[] = FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH "/" PATH_DIR_IMAGE_RAW;
 LedPanelConfig ledPanelConfig;
 
 FatSdCardSpiCustomConfig sdCardConfig;
-
-SemaphoreHandle_t queueImageRawMutex;
-SemaphoreHandle_t queueGdmaDescriptorsMutex;
 SemaphoreHandle_t queueWifiMessageReceiveMutex;
 SemaphoreHandle_t queueWifiMessageSendMutex;
 SemaphoreHandle_t clientRequestInformationMutex;
@@ -189,11 +189,9 @@ int GetWifiMessageHeader(int *socket, uint8_t *buffer, uint32_t size);
 int GetWifiMessageContent(int *socket, uint8_t *buffer, uint32_t size);
 void TcpServerConfig();
 void WifiConfig();
-void RequestNextGdmaDescriptorsNodeInQueue();
 RandomImageRawNameState RandomImageRawName(char *path);
 void LedPanelConfigInit(LedPanelConfig *config);
 void FatSdCardSpiCustomConfigInit(FatSdCardSpiCustomConfig *config);
-
 void LedPanelTask(void *pvParameters);
 void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters);
 void SdCardSpiTask(void *pvParameters);
@@ -215,8 +213,7 @@ void ReadFileInFolder(ClientRequestInformation *clientRequest);
 ClientRequestState GetClientRequestState(ClientRequestInformation *clientInformation);
 FileCommunicationState GetClientFileCommunicationState(ClientRequestInformation *clientInformation);
 void RequestHandleClientRequest(ClientRequestInformation *source, ClientRequestInformation *temp, CopyState *copyState);
-void RequestCoverntImageToVectorGdmadescriptorsNodeTaskWake();
-BaseType_t RequestReadFileAndPushInQueueImageRaw(FileInfomation *file, uint8_t *buffer, uint32_t size);
+BaseType_t RequestReadFileAndPushInQueueImageRaw(FileInfomation *file, uint32_t size);
 //-------------------------------------------------------------------------------/
 
 void app_main(void)
@@ -232,6 +229,16 @@ void app_main(void)
 	FileInfomationInit(&mClientRequestInformation.fileInformation, SIZE_NAME);
 	SemaphoreInit();
 	CreateTask();
+	
+	size_t free_ram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+
+	ESP_LOGE("RAM", "Free internal RAM: %d bytes (~%d KB)", 
+         free_ram, free_ram / 1024);
+    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+
+	ESP_LOGE("RAM", "Largest block: %d bytes (~%d KB)", 
+         largest, largest / 1024);
+         
 }
 
 //-------------------------------------------------------------------------------/
@@ -240,7 +247,7 @@ void CreateTask(){
 	xTaskCreatePinnedToCore(
         LedPanelTask,
         "LedPanelTask",
-        3072,
+        2560,
         NULL,
         FREE_RTOS_PRIORITY_REAL_TIME,
         NULL,
@@ -249,7 +256,7 @@ void CreateTask(){
     xTaskCreatePinnedToCore(
         CoverntImageToVectorGdmadescriptorsNodeTask,
         "CoverntImageToVectorGdmadescriptorsNodeTask",
-        3072,
+        2560,
         NULL,
         FREE_RTOS_PRIORITY_HIGH,
         &coverntImageToVectorGdmadescriptorsNodeHandle,
@@ -438,75 +445,121 @@ void TcpServerReceiveTask(void *pvParameter){
 }
 
 void LedPanelTask(void *pvParameters){
+	VectorGdmaDescriptorsNode *gdmaCurrent = NULL;
+	VectorGdmaDescriptorsNode *gdmaNew = NULL;
+
+    int64_t lastTime = 0;
+    int64_t nowTime = 0;
 	while (1) {
-		ESP_LOGI(TAG_LEDPANEL_TASK, TASK_RUNNING);
-		RequestNextGdmaDescriptorsNodeInQueue();
+		/*
+		UBaseType_t stack_remain = uxTaskGetStackHighWaterMark(NULL);
+		
+		ESP_LOGE("LedPanelTask", "Remaining stack: %d words (~%d bytes)",
+         stack_remain, stack_remain * 4); 
+         */
+		nowTime = esp_timer_get_time();
+		
+        if (lastTime != 0) {
+            ESP_LOGE("led", "Frame interval: %lld us (~%lld ms)", 
+                     nowTime - lastTime, 
+                     (nowTime - lastTime) / 1000);
+        }
+        
+        lastTime = nowTime;
+		
+		gdmaCurrent = gdmaNew;
+		GetDmaDescriptorReady(&gdmaNew, DMA_MANAGER_TIME_BLOCK);
+       	int64_t start = esp_timer_get_time();
+		LedPanelStartTransmit(&ledPanelConfig, gdmaNew);
+		int64_t end = esp_timer_get_time();
+		//ESP_LOGE("led", "StartTransmit cost: %lld us", end - start);
+		if(gdmaCurrent != NULL)
+			PushDmaDescriptorFree(gdmaCurrent, DMA_MANAGER_TIME_BLOCK);
 		vTaskDelay(pdMS_TO_TICKS(SECOND_UINT/fps));
+		ESP_LOGI("led", "start transmit");
 	}
 }
 
 
 void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters){
+	VectorGdmaDescriptorsNode *gdma = NULL;
+	ImageRaw *raw = NULL;
 	while (1) {
-		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-		if(xSemaphoreTake(queueImageRawMutex, portMAX_DELAY) == pdTRUE){
-			if(GetQueueImageRawState() != QUEUE_IMAGE_RAW_EMPTY){
-				if(xSemaphoreTake(queueGdmaDescriptorsMutex, portMAX_DELAY) == pdTRUE){
-					if(CheckQueueVectorGdmaDescriptorsNodeState() != QUEUE_VECTOR_DESCRIPTIORS_FULL){
-						uint8_t *buffer = PeekHeadQueueImageRaw();
-						PopQueueImageRaw();
-						ESP_LOGE("TAG", "Render Image");
-						QueueVectorGdmaDescriptorsNodePush(&ledPanelConfig, buffer);
-					}
-					xSemaphoreGive(queueGdmaDescriptorsMutex);
-				}
-			} else
-				ESP_LOGE("TAG", "QueueImageRaw empty");
-			xSemaphoreGive(queueImageRawMutex);
+		/*
+		UBaseType_t stack_remain = uxTaskGetStackHighWaterMark(NULL);
+		
+		ESP_LOGE("CoverntImageToVectorGdmadescriptorsNodeTask", "Remaining stack: %d words (~%d bytes)", 
+         stack_remain, stack_remain * 4);
+         */
+	    if (gdma == NULL) {
+	        GetDmaDescriptorFree(&gdma, DMA_MANAGER_TIME_BLOCK);
+	    }
+	
+	    if (raw == NULL) {
+	        GetQueueImageRawReady(&ledPanelImageRaw, &raw, IMAGE_RAW_BLOCK);
+	        memcpy(imageRawInternal.buffer, raw->buffer, BYTE_IN_FRAME);
+	    }
+	
+
+		if (gdma != NULL && raw != NULL) {
+		
+		    int64_t start = esp_timer_get_time();
+		
+		    ESP_LOGI("led", "start convert");
+		
+		    LedPanelConvertFrameData(gdma, 
+		                             &ledPanelConfig.style, 
+		                             &ledPanelImageRaw.config, 
+		                             raw);
+		
+		    int64_t end = esp_timer_get_time();
+		
+		    ESP_LOGE("convert", "Convert time: %lld us (~%lld ms)", 
+		             end - start, 
+		             (end - start) / 1000);
+		
+		    PushDmaDescriptorReady(gdma, DMA_MANAGER_TIME_BLOCK);
+		    PushQueueImageRawFree(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
+		
+		    gdma = NULL;
+		    raw = NULL;
 		}
 	}
 }
 
 void SdCardSpiTask(void *pvParameters){
-	uint8_t *buffer = NULL;
 	ClientRequestInformation client;
 	CopyState mCopyState = PENDING_COPY;
 	while (1) {
-		RequestReadFileAndPushInQueueImageRaw(&ledPanelFile, buffer, BYTE_IN_FRAME);
-		RequestCoverntImageToVectorGdmadescriptorsNodeTaskWake();
-		RequestHandleClientRequest(&mClientRequestInformation, &client, &mCopyState);
-		vTaskDelay(1);
+		UBaseType_t stack_remain = uxTaskGetStackHighWaterMark(NULL);
+		
+		ESP_LOGE("SdCardSpiTask", "Remaining stack: %d words (~%d bytes)", stack_remain, stack_remain * 4); 
+		RequestReadFileAndPushInQueueImageRaw(&ledPanelFile, BYTE_IN_FRAME);
+		//RequestHandleClientRequest(&mClientRequestInformation, &client, &mCopyState);
+		portYIELD();
 	}
 }
 
 //-------------------------------------------------------------------------------/
-BaseType_t RequestReadFileAndPushInQueueImageRaw(FileInfomation *file, uint8_t *buffer, uint32_t size){
+BaseType_t RequestReadFileAndPushInQueueImageRaw(FileInfomation *file, uint32_t size){
 	BaseType_t result = pdFALSE;
-	if(GetQueueImageRawState() != QUEUE_IMAGE_RAW_FULL){
-		buffer = PeekTailQueueImageRaw();
+	ImageRaw *raw;
+	if(GetQueueImageRawFree(&ledPanelImageRaw, &raw, DMA_MANAGER_TIME_NO_BLOCK) == pdTRUE){
 		if(FileInfomationNameCheck(file) == FILE_INFOMATION_NAME_EMPTY)
 			RandomImageRawName(file->path);
 			
-		FatSdCardSpiCustomCopyState sdCardCopyState  = CopySdCardSpiFile(file->path, buffer, size, file->offset);
+		FatSdCardSpiCustomCopyState sdCardCopyState  = CopySdCardSpiFile(file->path, raw->buffer, size, file->offset);
 		if(sdCardCopyState == FAT_SD_CARD_SPI_CUSTOM_COPY_OK){
 			file->offset += size;
 			result = pdTRUE; 
-			PushQueuueImageRaw();
+			PushQueueImageRawReady(&ledPanelImageRaw, raw, DMA_MANAGER_TIME_NO_BLOCK);
 		}
-		else
+		else{
 			SetFileInfomationEmty(file);
+			PushQueueImageRawFree(&ledPanelImageRaw, raw, DMA_MANAGER_TIME_NO_BLOCK);
+		}
 	}
 	return result;
-}
-void RequestCoverntImageToVectorGdmadescriptorsNodeTaskWake(){
-	eTaskState taskNotify = eBlocked;
-	if(xSemaphoreTake(queueGdmaDescriptorsMutex, NO_DELAY) == pdTRUE){
-		if(CheckQueueVectorGdmaDescriptorsNodeState() != QUEUE_VECTOR_DESCRIPTIORS_FULL)
-			taskNotify = eReady;
-		xSemaphoreGive(queueGdmaDescriptorsMutex);
-	}
-	if(taskNotify == eReady)
-		xTaskNotifyGive(coverntImageToVectorGdmadescriptorsNodeHandle);
 }
 void RequestHandleClientRequest(ClientRequestInformation *source, ClientRequestInformation *temp, CopyState *copyState){
 	if(xSemaphoreTake(clientRequestInformationMutex, NO_DELAY) == pdTRUE){
@@ -672,16 +725,6 @@ void SetupParameter(){
 	SetDoneHandleRequestClineInfomation(&mClientRequestInformation);
 }
 
-void RequestNextGdmaDescriptorsNodeInQueue(){
-	QueueVectorGdmaDescriptorsNodeState state = CheckQueueVectorGdmaDescriptorsNodeState();
-	if(state != QUEUE_VECTOR_DESCRIPTIORS_EMPTY){
-		RequestNextVectorGdmaDescriptorsNode(&ledPanelConfig);
-	} else {
-			ESP_LOGE("TAG", "QueueVectorGdmaDescriptorsNode empty");
-	}
-}
-
-
 RandomImageRawNameState RandomImageRawName(char *path){
 	DirentLinkerList list;
 	GetListFileSdCardSPI(PATH_DIR_IMAGE_RAW, &list);
@@ -721,6 +764,7 @@ void FatSdCardSpiCustomConfigInit(FatSdCardSpiCustomConfig *config){
     };
     config->mountConfig = mount_config;
     config->channelDma = SPI_DMA_CH_AUTO;
+   	config->host.max_freq_khz = SD_CARD_FREQ;
     FatSdCardSpiCustomInit(config);
     
 }
@@ -742,7 +786,9 @@ void LedPanelConfigInit(LedPanelConfig *config){
 		 LEDPANEL_PIN_LATCH, LEDPANEL_PIN_OE, LEDPANEL_PIN_CLK
 	};
 	
-	LedPanelInit(config, ledPanelPin, QUEUE_GDMA_DESCRIPTORS_SIZE, QUEUE_IMAGE_RAW_SIZE);
+	LedPanelInit(config, ledPanelPin, QUEUE_GDMA_DESCRIPTORS_SIZE);
+	QueueImageRawInit(&ledPanelImageRaw, QUEUE_IMAGE_RAW_SIZE, LEDPANEL_WIDTH, LEDPANEL_HEIGTH);
+	imageRawInternal.buffer = heap_caps_malloc(BYTE_IN_FRAME, MALLOC_CAP_INTERNAL);
 }
 
 void QueueWifiMessageConfig(){
@@ -751,8 +797,6 @@ void QueueWifiMessageConfig(){
 }
 
 void SemaphoreInit(){
-	queueImageRawMutex = xSemaphoreCreateMutex();
-	queueGdmaDescriptorsMutex = xSemaphoreCreateMutex();
 	queueWifiMessageReceiveMutex = xSemaphoreCreateMutex();
 	queueWifiMessageSendMutex = xSemaphoreCreateMutex();
 	clientRequestInformationMutex = xSemaphoreCreateMutex();

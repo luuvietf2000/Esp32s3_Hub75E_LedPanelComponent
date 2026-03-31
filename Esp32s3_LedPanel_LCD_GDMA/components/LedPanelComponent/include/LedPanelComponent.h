@@ -6,6 +6,7 @@
 #include "GdmaConfig.h"
 #include "QueueImageRaw.h"
 #include "Hub75ELut.h"
+#include "DmascriporsManager.h"
 #include <stdint.h>
 
 #define LEDPANEL_GDMA_DESCRIPTORS_NODE_END										1
@@ -47,9 +48,6 @@
 
 #define TIME_UINT(x)															(1 << x)
 
-#define HUB75E_INTERNAL_AREA													MALLOC_CAP_INTERNAL
-#define HUB75E_SPIRAM_AREA														MALLOC_CAP_SPIRAM
-
 typedef enum{
 	LEDPANEL_START_TRANSMIT_OK,
 	LEDPANEL_START_TRANSMIT_FAIL_CAUSE_GDMA_CHANNEL_IS_WORKING,
@@ -65,20 +63,11 @@ typedef enum{
 }LedPanelTransmitState;
 
 typedef enum{
-	LEDPANEL_INIT_OK,
-	LEDPANEL_INIT_FAIL_CAUSE_FIND_CHANNEL_AVAILABILITY_FAIL,
-	LEDPANEL_INIT_FAIL_CAUSE_QUEUE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_FAIL,
-	LEDPANEL_INIT_FAIL_CAUSE_QUEUE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_BUFFER_FAIL,
-	LEDPANEL_INIT_FAIL_CAUSE_QUEUE_ALLOCATION_FAIL,
-	LEDPANEL_INIT_FAIL_CAUSE_QUEUE_INIT_FAIL
+	LED_PANEL_INIT_OK,
+	LED_PANEL_INIT_FAIL_CAUSE_FIND_CHANNEL_AVAILABILITY_FAIL,
+	LED_PANEL_INIT_FAIL_CAUSE_DMA_DESCRIPTORS_MANAGER_INIT_FAIL
 }LedPanelInitState;
 
-typedef enum{
-	QUEUE_VECTOR_DESCRIPTIORS_INIT_OK,
-	QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_QUEUE_FAIL,
-	QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_FAIL,
-	QUEUE_VECTOR_DESCRIPTIORS_INIT_ERROR_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL
-} QueueVectorGdmaDescriptorsNodeInitState;
 
 typedef enum{
 	ALLOCATION_OK,
@@ -95,13 +84,6 @@ typedef enum{
 }LedPanelRgbColor;
 
 typedef enum{
-	LEDPANEL_INIT_VECTOR_OK,
-	LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_VECTOR_GDMA_DESCRIPTORS_NODE_FAIL,
-	LEDPANEL_INIT_VECTOR_FAIL_CAUSE_ALLOCATION_BUFFER_ADDRESS_POINTER_FAIL,
-	
-} LedPanelVectorInitState;
-
-typedef enum{
 	QUEUE_VECTOR_DESCRIPTIORS_EMPTY,
 	QUEUE_VECTOR_DESCRIPTIORS_FULL,
 	QUEUE_VECTOR_DESCRIPTIORS_NORMAL
@@ -112,11 +94,6 @@ typedef enum{
 	QUEUE_VECTOR_DESCRIPTIORS_PUSH_FAIL_CAUSE_QUEUE_SIZE_ONE_AND_LEDPANEL_USING,
 	QUEUE_VECTOR_DESCRIPTIORS_PUSH_OK
 } QueueVectorGdmaDescriptorsNodePushState;
-
-typedef struct VectorGdmaDescriptorsNode{
-	GdmaDescriptorsNode *head;
-	uint32_t length;
-} VectorGdmaDescriptorsNode;
 
 typedef struct LedPanelStyle{
 	uint32_t width;
@@ -134,15 +111,6 @@ typedef struct LedPanelConfig{
 	struct GdmaConfig gdmaConfig;
 } LedPanelConfig;
 
-typedef struct QueueVectorGdmaDescriptorsNode{
-	VectorGdmaDescriptorsNode vector;
-	uint32_t size;
-	uint32_t rear;
-	uint32_t front; 
-	uint32_t count;
-}QueueVectorGdmaDescriptorsNode;
-
-static struct QueueVectorGdmaDescriptorsNode *queueVectorGdmaDescriptorsNode;
 
 //--------------------------------------------------------------------------//
 // Function test
@@ -165,8 +133,6 @@ LedPanelStartTransmitState RequestNextVectorGdmaDescriptorsNode(LedPanelConfig *
 
 QueueVectorGdmaDescriptorsNodeState CheckQueueVectorGdmaDescriptorsNodeState();
 
-QueueVectorGdmaDescriptorsNodeInitState QueueVectorGdmaDescriptorsNodeInit(LedPanelStyle *style, uint32_t size);
-
 void LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(LedPanelStyle *style, uint32_t *length, uint32_t *size);
 
 void AddSignalOutputEnableLedPanel(uint16_t *buffer, uint32_t index, uint32_t address);
@@ -179,22 +145,18 @@ uint32_t GetLedPanelColorPixel(uint32_t pixelUp, uint32_t pixelDown, uint32_t bi
 
 uint32_t GetAddressLedPanel(uint32_t row);
 
-LedPanelVectorInitState VectorGdmaDescriptorsNodeInit(VectorGdmaDescriptorsNode *vector, uint32_t length, uint32_t bufferSize, uint32_t areaMemory);
-
 uint32_t GetColorStateLedPanelBit(uint32_t color, uint32_t formatColorBit, uint32_t placeColorBit, uint32_t startBit);
 
 uint32_t GetAddressLedPanelBit(uint32_t row, uint32_t mask, uint32_t start);
-
-void VectorGdmaDescriptorsNodeClear(VectorGdmaDescriptorsNode *vector);
 
 uint32_t GetValueLedPanelColor(LedPanelRgbColor color);
 
 uint32_t GetValueLedPanelScan(LedPanelScan scan);
 
-void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *style, uint8_t *buffer);
+void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *style, ImageRawConfig *config, ImageRaw *raw);
 
 LedPanelStartTransmitState LedPanelStartTransmit(LedPanelConfig *config, VectorGdmaDescriptorsNode *vector);
 
-LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[], uint32_t vectorGdmaDescriptiorsNodeSize, uint32_t queueImageRaw);
+LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[], uint32_t vectorGdmaDescriptiorsNodeSize);
 
 #endif /* COMPONENTS_LEDPANELCOMPONENT_INCLUDE_LEDPANELCOMPONENT_H_ */

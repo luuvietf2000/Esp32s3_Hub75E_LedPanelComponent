@@ -8,39 +8,35 @@
 #ifndef COMPONENTS_LEDPANELCOMPONENT_INCLUDE_QUEUEIMAGERAW_H_
 #define COMPONENTS_LEDPANELCOMPONENT_INCLUDE_QUEUEIMAGERAW_H_
 
-#define IMAGE_RAW_BUFF_OVERDUE_CELL 										3
-
-
+#include "freertos/idf_additions.h"
+#include "portmacro.h"
 #include <stdint.h>
+
+//-------------------------------------------------------------------------------------------------//
+
+#define IMAGE_RAW_BUFF_OVERDUE_CELL							 										3
+#define IMAGE_RAW_NO_BLOCK																			0
+#define IMAGE_RAW_BLOCK																				portMAX_DELAY
+//-------------------------------------------------------------------------------------------------//
+
 typedef struct ImageRaw{
 	uint8_t *buffer;
 } ImageRaw;
 
-typedef struct QueueImageRaw{
-	struct ImageRaw *head;
+typedef struct ImageRawConfig{
 	uint32_t size;
-	uint32_t rear;
-	uint32_t front;
 	uint32_t width;
 	uint32_t heigth;
-	uint32_t count;
+} ImageRawConfig;
+
+typedef struct QueueImageRaw{
+	QueueHandle_t queueFree;
+	QueueHandle_t queueReady;
+	ImageRaw *head;
+	ImageRawConfig config;
 } QueueImageRaw;
 
-typedef enum{
-	QUEUE_IMAGE_RAW_FULL, 
-	QUEUE_IMAGE_RAW_EMPTY,
-	QUEUE_IMAGE_RAW_NOMAL
-} QueueImageRawStateEnum;
-
-typedef enum{
-	QUEUE_IMAGE_RAW_PUSH_FAIL_CAUSE_QUEUE_FULL,
-	QUEUE_IMAGE_RAW_PUSH_OK
-} QueueImagePushStateEnum;
-
-typedef enum{
-	QUEUE_IMAGE_RAW_POP_FAIL_CAUSE_QUEUE_EMPTY,
-	QUEUE_IMAGE_RAW_POP_OK
-} QueueImagePopStateEnum;
+//-------------------------------------------------------------------------------------------------//
 
 typedef enum{
 	QUEUE_IMAGE_RAW_INIT_OK,
@@ -49,24 +45,22 @@ typedef enum{
 	QUEUE_IMAGE_RAW_INIT_FAIL_CAUSE_ALLOCATION_QUEUE_IMAGE_RAW_FAIL
 } QueueImageInitEnum;
 
-static QueueImageRaw *queueImageRaw;
+//-------------------------------------------------------------------------------------------------//
 
-QueueImagePopStateEnum PopQueueImageRaw();
+uint8_t GetSingelColorInPixel(ImageRawConfig *config, ImageRaw *raw, uint32_t colorSingel,uint32_t width, uint32_t heigth);
 
-QueueImagePushStateEnum PushQueuueImageRaw();
+BaseType_t GetQueueImageRawReady(QueueImageRaw *queue, ImageRaw **pointer, TickType_t blocking);
 
-uint8_t* PeekHeadQueueImageRaw();
+BaseType_t PushQueueImageRawReady(QueueImageRaw *queue, ImageRaw *pointer, TickType_t blocking);
 
-uint8_t* PeekTailQueueImageRaw();
+BaseType_t GetQueueImageRawFree(QueueImageRaw *queue, ImageRaw **pointer, TickType_t blocking);
 
-QueueImageRawStateEnum GetQueueImageRawState();
+BaseType_t PushQueueImageRawFree(QueueImageRaw *queue, ImageRaw *pointer, TickType_t blocking);
 
-int GetNextIndexQueueImageRaw(int index);
+uint32_t GetColorImageRaw(ImageRawConfig *config, ImageRaw *raw, uint32_t width, uint32_t heigth);
 
-uint32_t GetColorImageRaw(uint8_t *buffer, uint32_t width, uint32_t heigth);
+void QueueImageRawFree(QueueImageRaw *queue, uint32_t lengthBufferAllocation);
 
-void QueueImageRawFree(uint32_t lengthBufferAllocation);
-
-QueueImageInitEnum QueueImageRawInit(int size, uint32_t width, uint32_t heigth);
+QueueImageInitEnum QueueImageRawInit(QueueImageRaw *queue, int size, uint32_t width, uint32_t heigth);
 
 #endif /* COMPONENTS_LEDPANELCOMPONENT_INCLUDE_QUEUEIMAGERAW_H_ */
