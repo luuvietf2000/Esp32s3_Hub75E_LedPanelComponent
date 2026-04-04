@@ -21,21 +21,27 @@
 #define HUB75E_RGB_SINGLE_MASK													0xFF
 #define HUB75E_RGB_COLOR_BIT_SINGLE												8
 
+#define HUB75E_TABLE_LEVEL_PIN													6
+
 typedef enum{
 	R_LUT_GAMMA_INDEX,
 	G_LUT_GAMMA_INDEX,
 	B_LUT_GAMMA_INDEX
 }HUB75E_LUT_GAMMA_INDEX;
 
-uint8_t HUB75ELutGetSingelColor(HUB75E_LUT_GAMMA_INDEX index, uint8_t level);
+typedef enum{
+	R1_PIN_INDEX,
+	R2_PIN_INDEX,
+	G1_PIN_INDEX,
+	G2_PIN_INDEX,
+	B1_PIN_INDEX,
+	B2_PIN_INDEX,
+} HUB75E_LUT_GAMMA_PIN_INDEX;
 
-uint32_t Hub75EScaleBitGammaPixel(uint32_t color, uint32_t indexLutGamma, uint32_t mask, uint32_t start, uint32_t bit);
 
-void Hub75EScaleLutGammaLedPanel(uint32_t index, float scale);
+extern uint16_t (*lutGamma)[HUB75E_LUT_LEVEL][HUB75E_RGB_COLOR_BIT_SINGLE];
 
-void Hub75ELutInit(uint8_t bit, float gammaLut, float redScale, float greenScale, float blueScale);
-
-uint32_t Hub75ELutGetColor(uint32_t color, uint32_t bit);
+void Hub75ELutInit(uint8_t red1S, uint8_t red2S, uint8_t green1S, uint8_t green2S, uint8_t blue1S, uint8_t blue2S ,uint8_t bit, float gammaLut, float redScale, float greenScale, float blueScale);
 
 float GetScaleColorHub75E(float scale);
 

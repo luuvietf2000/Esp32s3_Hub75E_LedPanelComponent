@@ -1,53 +1,42 @@
 #include "Hub75ELut.h"
+#include "esp_heap_caps.h"
 #include <math.h>
 #include <stdint.h>
 
-static float lutGamma[HUB75E_LUT_COLOR][HUB75E_LUT_LEVEL];
+uint16_t (*lutGamma)[HUB75E_LUT_LEVEL][HUB75E_RGB_COLOR_BIT_SINGLE];
 
-void Hub75ELutInit(uint8_t bit, float gammaLut, float redScale, float greenScale, float blueScale){
+void Hub75ELutInit(uint8_t red1S, uint8_t red2S, uint8_t green1S, uint8_t green2S, uint8_t blue1S, uint8_t blue2S ,uint8_t bit, float gammaLut, float redScale, float greenScale, float blueScale){
 	float red = GetScaleColorHub75E(redScale);
 	float green = GetScaleColorHub75E(greenScale);
 	float blue = GetScaleColorHub75E(blueScale);
 	float gamma = GetGammaLutHub75E(gammaLut);
 	
-	for(uint32_t index = 0; index < HUB75E_LUT_COLOR; index++)
-		for(uint32_t level = 0; level < HUB75E_LUT_LEVEL; level++){
-			float normalized = (float) level / (HUB75E_LUT_LEVEL - 1);
-			lutGamma[index][level] = pow(normalized, gamma);
+	lutGamma = heap_caps_malloc(sizeof(uint16_t) * HUB75E_TABLE_LEVEL_PIN * HUB75E_LUT_LEVEL * HUB75E_RGB_COLOR_BIT_SINGLE, MALLOC_CAP_SPIRAM);
+	
+	float normalized, scaleBit;
+	uint16_t gammaLevelRed, gammaLevelGreen, gammaLevelBlue;
+	scaleBit = (1 << bit) - 1;
+	for(uint32_t level = 0; level < HUB75E_LUT_LEVEL; level++){
+		normalized = (float) level / (HUB75E_LUT_LEVEL - 1);
+		gammaLevelRed = roundf(pow(normalized, gamma) * red * scaleBit);
+		for(uint16_t i = 0; i < HUB75E_RGB_COLOR_BIT_SINGLE; i++){
+			lutGamma[R1_PIN_INDEX][level][i] = ((gammaLevelRed >> i) & 1) << red1S;
+			lutGamma[R2_PIN_INDEX][level][i] = ((gammaLevelRed >> i) & 1) << red2S;
 		}
 		
-	Hub75EScaleLutGammaLedPanel(R_LUT_GAMMA_INDEX, red);
-	Hub75EScaleLutGammaLedPanel(G_LUT_GAMMA_INDEX, green);
-	Hub75EScaleLutGammaLedPanel(B_LUT_GAMMA_INDEX, blue);
-	
-	for(uint32_t index = 0; index < HUB75E_LUT_COLOR; index++)
-		for(uint32_t level = 0; level < HUB75E_LUT_LEVEL; level++)
-			lutGamma[index][level] = (uint8_t)round(lutGamma[index][level] / ((1 << HUB75E_RGB_COLOR_BIT_SINGLE) - 1) * ((1 << bit) - 1));
-}
-
-uint8_t HUB75ELutGetSingelColor(HUB75E_LUT_GAMMA_INDEX index, uint8_t level){
-	return lutGamma[index][level];
-}
-
-void Hub75EScaleLutGammaLedPanel(uint32_t index, float scale){
-	for(uint32_t level = 0; level < HUB75E_LUT_LEVEL; level++){
-		lutGamma[index][level] *= scale;
+		gammaLevelGreen = roundf(pow(normalized, gamma) * green * scaleBit);
+		for(uint16_t i = 0; i < HUB75E_RGB_COLOR_BIT_SINGLE; i++){
+			lutGamma[G1_PIN_INDEX][level][i] = ((gammaLevelGreen >> i) & 1) << green1S;
+			lutGamma[G2_PIN_INDEX][level][i] = ((gammaLevelGreen >> i) & 1) << green2S;
+		}
+		gammaLevelBlue = roundf(pow(normalized, gamma) * blue * scaleBit);
+		for(uint16_t i = 0; i < HUB75E_RGB_COLOR_BIT_SINGLE; i++){
+			lutGamma[B1_PIN_INDEX][level][i] = ((gammaLevelBlue >> i) & 1) << blue1S;
+			lutGamma[B2_PIN_INDEX][level][i] = ((gammaLevelBlue >> i) & 1) << blue2S;
+		}
 	}
 }
 
-uint32_t Hub75ELutGetColor(uint32_t color, uint32_t bit){
-	uint32_t red = Hub75EScaleBitGammaPixel(color, R_LUT_GAMMA_INDEX, HUB75E_RGB_RED_MASK, R_COLOR_S, bit);
-	uint32_t green = Hub75EScaleBitGammaPixel(color, G_LUT_GAMMA_INDEX, HUB75E_RGB_GREEN_MASK, G_COLOR_S, bit);
-	uint32_t blue = Hub75EScaleBitGammaPixel(color, B_LUT_GAMMA_INDEX, HUB75E_RGB_BLUE_MASK, B_COLOR_S, bit);
-	return (red << R_COLOR_S) | (green << G_COLOR_S) | (blue << B_COLOR_S);
-}
-
-uint32_t Hub75EScaleBitGammaPixel(uint32_t color, uint32_t indexLutGamma, uint32_t mask, uint32_t start, uint32_t bit){
-	uint32_t level = (color & mask) >> start;
-	uint32_t totalPwm = (bit <= 0) ? 0 :((1 << bit) - 1);
-	uint32_t newlevel = lutGamma[indexLutGamma][level] * totalPwm;
-	return newlevel;
-}
 
 float GetGammaLutHub75E(float gamma){
 	return gamma < HUB75E_LUT_GAMMMA_MIN ? HUB75E_LUT_GAMMMA_MIN : gamma;

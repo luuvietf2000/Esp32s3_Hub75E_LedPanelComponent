@@ -8,8 +8,8 @@
 #ifndef COMPONENTS_LEDPANELCOMPONENT_INCLUDE_QUEUEIMAGERAW_H_
 #define COMPONENTS_LEDPANELCOMPONENT_INCLUDE_QUEUEIMAGERAW_H_
 
-#include "freertos/idf_additions.h"
-#include "portmacro.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include <stdint.h>
 
 //-------------------------------------------------------------------------------------------------//

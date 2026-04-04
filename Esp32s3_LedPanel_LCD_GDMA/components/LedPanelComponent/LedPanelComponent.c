@@ -1,15 +1,18 @@
 #include "LedPanelComponent.h"
+#include "DmascriporsManager.h"
 #include "GdmaConfig.h"
 #include "Hub75ELut.h"
 #include "LcdCamConfig.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/idf_additions.h"
+#include "freertos/projdefs.h"
 #include "portmacro.h"
 #include "soc/gpio_num.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "soc/interrupts.h"
 #include "sys/unistd.h"
 
 #define TAG_VECTOR_DESCRIPTIONS_NODE									"Vector Gdma Descriptors Node"
@@ -27,6 +30,13 @@
 #define QUEUE_VECTOR_DESCRIPTIORS_ERROR									"Queue Vector Gdma Descriptors Node Error"
 #define QUEUE_VECTOR_DESCRIPTIORS_ERROR_CONTENT							"Queue Vector Gdma Descriptors Node Allow Error"
 //--------------------------------------------------------------------------//
+
+static uint16_t *addressByteCode = NULL;
+static BaseType_t isNotifyTask = pdTRUE;
+static TaskHandle_t task = NULL;
+static intr_handle_t ledPanelHandle;
+DRAM_ATTR static uint32_t gdmaChannel;
+
 // Function test
 void GdmaCheckVectorGdmaDescriptorsNode(VectorGdmaDescriptorsNode *vector){
 	uint32_t isPass = VECTOR_GDMA_VALID_VALUE;
@@ -60,6 +70,22 @@ void GdmaCheckVectorGdmaDescriptorsNode(VectorGdmaDescriptorsNode *vector){
 }
 
 //--------------------------------------------------------------------------//
+
+static void IRAM_ATTR ledPanelIsr(void *arg){
+	
+}
+
+BaseType_t LedPanelRestart(VectorGdmaDescriptorsNode *vector){
+	VectorGdmaDescriptorsNode *current = GetDmadescriptorTransmit();
+	if(current == NULL)
+		return pdFALSE;
+	GdmaDescriptorsNode *last = current->head + (current->length - 1);
+	SetDw2GdmaDescriptorsNode(last, (uint32_t) vector->head->DW0); 
+	task = xTaskGetCurrentTaskHandle();
+	while(isNotifyTask == pdTRUE)
+		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+	return pdTRUE;
+}
 
 LedPanelTransmitState GetLedpanelState(LedPanelConfig *config){
 	LcdTransmitState lcdState = GetLcdState();
@@ -112,7 +138,6 @@ uint32_t GetLedPanelColorPixel(uint32_t pixelUp, uint32_t pixelDown, uint32_t bi
 }
 
 void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *style, ImageRawConfig *config, ImageRaw *raw){
-	uint32_t pixelUpSide, pixelDownSide;
 	uint32_t colorAfterConvert, addressAfterConvert;
 	colorAfterConvert = addressAfterConvert = 0;
 	uint16_t *bufferDestination = NULL;
@@ -123,8 +148,10 @@ void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *
 	uint32_t width = style->width;
 	uint32_t heigth = style->heigth;
 	uint32_t color = style->color;
-	uint32_t enablePixel = 0;
 	uint32_t r1, b1, g1, r2, g2, b2;
+	uint8_t *p1, *p2;
+	uint32_t indexRowUp, indexRowDown;
+	
 	for(uint16_t bit = 0; bit < color; bit++){
 		for(uint16_t row = 0; row < heigth / 2; row++){
 			bufferDestination = (uint16_t*)vector->head[frame].DW1;
@@ -137,101 +164,56 @@ void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *
 				beforRowAddress = row - 1;
 				bitColor = bit;
 			}
-
-			addressAfterConvert = GetAddressLedPanel(beforRowAddress);
+			addressAfterConvert = *(addressByteCode + beforRowAddress);
 			AddSignalOutputEnableLedPanel(bufferDestination, OE_CLOCK_CYCLES_START, addressAfterConvert);
-			
+			indexRowUp = row * width;
+			indexRowDown = (row + 32) * width;
 			for(uint32_t phase = 0; phase < OE_CLOCK_CYCLES - OE_CLOCK_PHASE_1; phase++)
-				AddSignalClkLedPanel(bufferDestination, OE_CLOCK_CYCLES_START + OE_CLOCK_PHASE_1 + phase, 0x00, addressAfterConvert, bitColor, enablePixel);
-			
-			for(uint16_t column = 0; column < width; column ++){	
+				AddSignalClkLedPanel(bufferDestination, OE_CLOCK_CYCLES_START + OE_CLOCK_PHASE_1 + phase, 0x00, addressAfterConvert, bitColor);
+			for(uint16_t column = 0; column < width; column ++){
+				p1 = raw->buffer +  (indexRowUp + column) * HUB75E_LUT_COLOR;
+				p2 = raw->buffer + (indexRowDown + column) * HUB75E_LUT_COLOR;
 				
-				//pixelUpSide =  GetColorImageRaw(config, raw, column, row);
-				//pixelDownSide = GetColorImageRaw(config, raw, column, row + heigth/ 2);
+				r1 = lutGamma[R1_PIN_INDEX][p1[R_LUT_GAMMA_INDEX]][bit];
+				g1 = lutGamma[G1_PIN_INDEX][p1[G_LUT_GAMMA_INDEX]][bit];
+				b1 = lutGamma[B1_PIN_INDEX][p1[B_LUT_GAMMA_INDEX]][bit];
 				
-				//pixelUpSide = Hub75ELutGetColor( pixelUpSide, color);
-				//pixelDownSide = Hub75ELutGetColor( pixelDownSide, color);
-				
-				//colorAfterConvert = GetLedPanelColorPixel(pixelUpSide, pixelDownSide, bit);
-			
-				r1 = GetSingelColorInPixel(config, raw, R_LUT_GAMMA_INDEX, width, heigth);
-				g1 = GetSingelColorInPixel(config, raw, G_LUT_GAMMA_INDEX, width, heigth);
-				b1 = GetSingelColorInPixel(config, raw, B_LUT_GAMMA_INDEX, width, heigth);
-				r2 = GetSingelColorInPixel(config, raw, R_LUT_GAMMA_INDEX, width, row + heigth/ 2);
-				g2 = GetSingelColorInPixel(config, raw, G_LUT_GAMMA_INDEX, width, row + heigth/ 2);
-				b2 = GetSingelColorInPixel(config, raw, B_LUT_GAMMA_INDEX, width, row + heigth/ 2);
-				
-				r1 = HUB75ELutGetSingelColor(R_LUT_GAMMA_INDEX, r1);
-				g1 = HUB75ELutGetSingelColor(G_LUT_GAMMA_INDEX, g1);
-				b1 = HUB75ELutGetSingelColor(B_LUT_GAMMA_INDEX, b1);
-				r2 = HUB75ELutGetSingelColor(R_LUT_GAMMA_INDEX, r2);
-				g2 = HUB75ELutGetSingelColor(G_LUT_GAMMA_INDEX, g2);
-				b2 = HUB75ELutGetSingelColor(B_LUT_GAMMA_INDEX, b2);
-				
-				r1 = ((r1 & (1 << bit)) ? 1 : 0) << R1_PIN_S;
-				g1 = ((g1 & (1 << bit)) ? 1 : 0) << G1_PIN_S;
-				b1 = ((b1 & (1 << bit)) ? 1 : 0) << B1_PIN_S;
-
-				r2 = ((r2 & (1 << bit)) ? 1 : 0) << R2_PIN_S;
-				g2 = ((g2 & (1 << bit)) ? 1 : 0) << G2_PIN_S;
-				b2 = ((b2 & (1 << bit)) ? 1 : 0) << B2_PIN_S;
+				r2 = lutGamma[R2_PIN_INDEX][p2[R_LUT_GAMMA_INDEX]][bit];
+				g2 = lutGamma[G2_PIN_INDEX][p2[G_LUT_GAMMA_INDEX]][bit];
+				b2 = lutGamma[B2_PIN_INDEX][p2[B_LUT_GAMMA_INDEX]][bit];
 				
 				colorAfterConvert = r1 | g1 | b1 | r2 | g2 | b2;
-				enablePixel = ((bit == 0) && (row == 0) && (column == 0)) ? 0 : 1;
-				//AddSignalClkLedPanel(bufferDestination, column + OE_CLOCK_CYCLES, colorAfterConvert, addressAfterConvert, bitColor, enablePixel); 
-				*(bufferDestination + column) = colorAfterConvert | addressAfterConvert | (LATCH_DISABLE_BIT << LATCH_PIN_S) | (OE_BIT(enablePixel, column + OE_CLOCK_CYCLES, bitColor) << OUTPUT_ENABLE_PIN_S); 
+				AddSignalClkLedPanel(bufferDestination, column + OE_CLOCK_CYCLES, colorAfterConvert, addressAfterConvert, bitColor); 
 			}
 			AddSignalLatchLedPanel(bufferDestination, OE_CLOCK_CYCLES + width - LATCH_CLOCK_CYCLES, colorAfterConvert, addressAfterConvert);
-			frame++;
-			
-			bufferDestination = (uint16_t*)vector->head[frame].DW1;
-			enablePixel = 1;
-			addressAfterConvert = GetAddressLedPanel(style->heigth / style->scan - 1);
-			AddSignalOutputEnableLedPanel(bufferDestination, OE_CLOCK_CYCLES_START, addressAfterConvert);
-			
-			for(uint32_t phase = 0; phase < OE_CLOCK_CYCLES - OE_CLOCK_PHASE_1; phase++)
-				AddSignalClkLedPanel(bufferDestination, OE_CLOCK_CYCLES_START + OE_CLOCK_PHASE_1 + phase, 0x00, addressAfterConvert, style->color - 1, enablePixel);
-			
-			for(uint32_t column = 0; column < (style->width + OE_CLOCK_CYCLES); column++)
-				AddSignalClkLedPanel(bufferDestination, column + OE_CLOCK_CYCLES, 0x00, addressAfterConvert, style->color - 1, enablePixel); 
-				
-			AddSignalLatchLedPanel(bufferDestination, OE_CLOCK_CYCLES + width - LATCH_CLOCK_CYCLES, 0x00, addressAfterConvert);
+				frame++;
 		}
 	}
 }
 
-void AddSignalClkLedPanel(uint16_t *buffer, uint32_t column, uint32_t color, uint32_t address, uint32_t bit, uint32_t enable){
-	*(buffer + column) = color | address | (LATCH_DISABLE_BIT << LATCH_PIN_S) | (OE_BIT(enable, column, bit) << OUTPUT_ENABLE_PIN_S); 
+static inline void AddSignalClkLedPanel(uint16_t *buffer, uint32_t column, uint32_t color, uint32_t address, uint32_t bit){
+	*(buffer + column) = color | address | (LATCH_DISABLE_BIT << LATCH_PIN_S) | (OE_BIT(column, bit) << OUTPUT_ENABLE_PIN_S); 
 }
 
-void AddSignalLatchLedPanel(uint16_t *buffer, uint32_t index,  uint32_t color, uint32_t address){
+static inline void AddSignalLatchLedPanel(uint16_t *buffer, uint32_t index,  uint32_t color, uint32_t address){
 	*(buffer + index) = address | color | (LATCH_ENABLE_BIT << LATCH_PIN_S) | (OE_DISABLE_BIT << OUTPUT_ENABLE_PIN_S);
 }
 
-void AddSignalOutputEnableLedPanel(uint16_t *buffer, uint32_t index, uint32_t address){
+static inline void AddSignalOutputEnableLedPanel(uint16_t *buffer, uint32_t index, uint32_t address){
 	*(buffer + index) = address | (LATCH_DISABLE_BIT << LATCH_PIN_S) | (OE_ENABLE_BIT << OUTPUT_ENABLE_PIN_S); 
 }
 
 LedPanelStartTransmitState LedPanelStartTransmit(LedPanelConfig *config, VectorGdmaDescriptorsNode *vector){
-	GdmaChannelState gmdaChannelState = GdmaChannelIsIdle(&config->gdmaConfig);
-	if(gmdaChannelState == GDMA_CHANNEL_WORKING){
-		DisableGmdaTransmit(config->gdmaConfig.channel);
-	}
-		
+	DisableGmdaTransmit(config->gdmaConfig.channel);
 	GdmaTransmit(&config->gdmaConfig, (uint32_t) &vector->head->DW0);
-	
-	LcdTransmitState lcdState = GetLcdState();
-	if(lcdState == LCD_TRANSMIT_WORKING){
-		LcdStop();
-	}
-		
+	LcdStop();
 	LcdStart();
-	
+	SetDmadescriptorTransmit(vector);
 	return LEDPANEL_START_TRANSMIT_OK;
 }
 
 void LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(LedPanelStyle *style, uint32_t *length, uint32_t *size){
-	*length = (style->heigth / style->scan * style->color) + LEDPANEL_DUMMY_PHASE;
+	*length = (style->heigth / style->scan * style->color);
 	uint32_t bufferLength = style->width + OE_CLOCK_CYCLES;
 	*size = bufferLength * sizeof(uint16_t);
 }
@@ -242,18 +224,26 @@ LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[], uint32_
 	BaseType_t queueInitState = DmaDescriptorManagerInit(vectorGdmaDescriptiorsNodeSize, length, size);
 	if(queueInitState == pdFALSE)
 		return LED_PANEL_INIT_FAIL_CAUSE_DMA_DESCRIPTORS_MANAGER_INIT_FAIL;
-	Hub75ELutInit(config->style.color,
+	Hub75ELutInit(R1_PIN_S, R2_PIN_S, G1_PIN_S, G2_PIN_S, B1_PIN_S, B2_PIN_S,
+				  config->style.color,
 				  config->style.gamma,
 				  config->style.redScale,
 				  config->style.greenScale,
 				  config->style.blueScale
 	);
 	//-------------------------------------------------------------------------//
-	
+	gdmaChannel = config->gdmaConfig.channel;
+	esp_intr_alloc(ETS_DMA_OUT_CHX_INTR_SOURCE(config->gdmaConfig.channel), ESP_INTR_FLAG_IRAM, ledPanelIsr, (void*) &gdmaChannel, &ledPanelHandle);
 	LcdInit(pin);
 	GdmaInitState gdmaInitstate =  GdmaInit(&config->gdmaConfig);
 	if(gdmaInitstate == GDMA_INIT_FAIL_CAUSE_GDMA_CHANNEL_FIND_AVAILABILITY_FAIL)
 		return LED_PANEL_INIT_FAIL_CAUSE_FIND_CHANNEL_AVAILABILITY_FAIL;
+	
+	uint32_t rowSide = config->style.heigth / config->style.scan;
+	addressByteCode = heap_caps_malloc(sizeof(uint16_t) * rowSide, MALLOC_CAP_SPIRAM);
+	for(uint32_t row = 0; row < rowSide; row++){
+		*(addressByteCode + row) = GetAddressLedPanel(row);
+	}
 	
 	return LED_PANEL_INIT_OK;
 }

@@ -162,7 +162,6 @@ typedef struct ClientRequestInformation{
 //-------------------------------------------------------------------------------/
 
 QueueImageRaw ledPanelImageRaw;
-ImageRaw imageRawInternal;
 const char pathImageRawFolder[] = FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH "/" PATH_DIR_IMAGE_RAW;
 LedPanelConfig ledPanelConfig;
 
@@ -447,36 +446,18 @@ void TcpServerReceiveTask(void *pvParameter){
 void LedPanelTask(void *pvParameters){
 	VectorGdmaDescriptorsNode *gdmaCurrent = NULL;
 	VectorGdmaDescriptorsNode *gdmaNew = NULL;
-
-    int64_t lastTime = 0;
-    int64_t nowTime = 0;
 	while (1) {
-		/*
-		UBaseType_t stack_remain = uxTaskGetStackHighWaterMark(NULL);
-		
-		ESP_LOGE("LedPanelTask", "Remaining stack: %d words (~%d bytes)",
-         stack_remain, stack_remain * 4); 
-         */
-		nowTime = esp_timer_get_time();
-		
-        if (lastTime != 0) {
-            ESP_LOGE("led", "Frame interval: %lld us (~%lld ms)", 
-                     nowTime - lastTime, 
-                     (nowTime - lastTime) / 1000);
-        }
-        
-        lastTime = nowTime;
-		
+		int64_t start = esp_timer_get_time();
 		gdmaCurrent = gdmaNew;
 		GetDmaDescriptorReady(&gdmaNew, DMA_MANAGER_TIME_BLOCK);
-       	int64_t start = esp_timer_get_time();
 		LedPanelStartTransmit(&ledPanelConfig, gdmaNew);
-		int64_t end = esp_timer_get_time();
-		//ESP_LOGE("led", "StartTransmit cost: %lld us", end - start);
+
+		
 		if(gdmaCurrent != NULL)
 			PushDmaDescriptorFree(gdmaCurrent, DMA_MANAGER_TIME_BLOCK);
+		int64_t end = esp_timer_get_time();
+		ESP_LOGE("led", "StartTransmit cost: %lld us", end - start);
 		vTaskDelay(pdMS_TO_TICKS(SECOND_UINT/fps));
-		ESP_LOGI("led", "start transmit");
 	}
 }
 
@@ -497,7 +478,6 @@ void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters){
 	
 	    if (raw == NULL) {
 	        GetQueueImageRawReady(&ledPanelImageRaw, &raw, IMAGE_RAW_BLOCK);
-	        memcpy(imageRawInternal.buffer, raw->buffer, BYTE_IN_FRAME);
 	    }
 	
 
@@ -533,7 +513,7 @@ void SdCardSpiTask(void *pvParameters){
 	while (1) {
 		UBaseType_t stack_remain = uxTaskGetStackHighWaterMark(NULL);
 		
-		ESP_LOGE("SdCardSpiTask", "Remaining stack: %d words (~%d bytes)", stack_remain, stack_remain * 4); 
+		//ESP_LOGE("SdCardSpiTask", "Remaining stack: %d words (~%d bytes)", stack_remain, stack_remain * 4); 
 		RequestReadFileAndPushInQueueImageRaw(&ledPanelFile, BYTE_IN_FRAME);
 		//RequestHandleClientRequest(&mClientRequestInformation, &client, &mCopyState);
 		portYIELD();
@@ -545,6 +525,7 @@ BaseType_t RequestReadFileAndPushInQueueImageRaw(FileInfomation *file, uint32_t 
 	BaseType_t result = pdFALSE;
 	ImageRaw *raw;
 	if(GetQueueImageRawFree(&ledPanelImageRaw, &raw, DMA_MANAGER_TIME_NO_BLOCK) == pdTRUE){
+		int64_t start = esp_timer_get_time();
 		if(FileInfomationNameCheck(file) == FILE_INFOMATION_NAME_EMPTY)
 			RandomImageRawName(file->path);
 			
@@ -558,6 +539,11 @@ BaseType_t RequestReadFileAndPushInQueueImageRaw(FileInfomation *file, uint32_t 
 			SetFileInfomationEmty(file);
 			PushQueueImageRawFree(&ledPanelImageRaw, raw, DMA_MANAGER_TIME_NO_BLOCK);
 		}
+		int64_t end = esp_timer_get_time();
+		
+		ESP_LOGE("sd card", "read time: %lld us (~%lld ms)", 
+		             end - start, 
+		             (end - start) / 1000);
 	}
 	return result;
 }
@@ -788,7 +774,6 @@ void LedPanelConfigInit(LedPanelConfig *config){
 	
 	LedPanelInit(config, ledPanelPin, QUEUE_GDMA_DESCRIPTORS_SIZE);
 	QueueImageRawInit(&ledPanelImageRaw, QUEUE_IMAGE_RAW_SIZE, LEDPANEL_WIDTH, LEDPANEL_HEIGTH);
-	imageRawInternal.buffer = heap_caps_malloc(BYTE_IN_FRAME, MALLOC_CAP_INTERNAL);
 }
 
 void QueueWifiMessageConfig(){

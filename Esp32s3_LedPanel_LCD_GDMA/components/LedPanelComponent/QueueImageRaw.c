@@ -19,8 +19,6 @@
 
 
 uint8_t GetSingelColorInPixel(ImageRawConfig *config, ImageRaw *raw, uint32_t colorSingel, uint32_t width, uint32_t heigth){
-	if(width >= config->width && heigth >= config->heigth)
-		return 0;
 	uint32_t index = (config->width * heigth + width) * HUB75E_LUT_COLOR;
 	return *(raw->buffer + index + colorSingel);
 }

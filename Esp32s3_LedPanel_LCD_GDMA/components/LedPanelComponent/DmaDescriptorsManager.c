@@ -10,6 +10,15 @@
 static VectorGdmaDescriptorsNodePool pool;
 static QueueHandle_t vectorFree = NULL;
 static QueueHandle_t vectorReady = NULL;
+static VectorGdmaDescriptorsNode *vectorTransmit = NULL;
+
+VectorGdmaDescriptorsNode *GetDmadescriptorTransmit(){
+	return vectorTransmit;
+}
+
+void SetDmadescriptorTransmit(VectorGdmaDescriptorsNode *vector){
+	vectorTransmit = vector;
+}
 
 BaseType_t DmaDescriptorManagerInit(uint32_t size, uint32_t vectorGdmaDescriptorsLength, uint32_t gdmaDescriptorBufferSize){
 	vectorFree = xQueueCreate(size, sizeof(VectorGdmaDescriptorsNode*));

@@ -48,6 +48,10 @@ typedef struct QueueVectorGdmaDescriptorsNode{
 
 //----------------------------------------------------------------------------------------------------------------//
 
+VectorGdmaDescriptorsNode *GetDmadescriptorTransmit();
+
+void SetDmadescriptorTransmit(VectorGdmaDescriptorsNode *vector);
+
 BaseType_t DmaDescriptorManagerInit(uint32_t size, uint32_t vectorGdmaDescriptorsLength, uint32_t gdmaDescriptorBufferSize);
 
 BaseType_t PushDmaDescriptorFree(VectorGdmaDescriptorsNode *pointer, TickType_t blocking);

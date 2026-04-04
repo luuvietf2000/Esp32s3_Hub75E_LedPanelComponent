@@ -44,10 +44,10 @@
 
 #define OE_ENABLE_BIT															0
 #define OE_DISABLE_BIT															1
-#define OE_BIT(enable, column, place)											((enable == 1) && (TIME_UINT(place) >= OE_CLOCK_CYCLES ) && (column < TIME_UINT(place)) ? OE_ENABLE_BIT : OE_DISABLE_BIT)
+#define OE_BIT(column, place)													((TIME_UINT(place) >= OE_CLOCK_CYCLES ) && (column < TIME_UINT(place)) ? OE_ENABLE_BIT : OE_DISABLE_BIT)
 
 #define TIME_UINT(x)															(1 << x)
-
+#define ETS_DMA_OUT_CHX_INTR_SOURCE(x)											(ETS_DMA_OUT_CH0_INTR_SOURCE + x)
 typedef enum{
 	LEDPANEL_START_TRANSMIT_OK,
 	LEDPANEL_START_TRANSMIT_FAIL_CAUSE_GDMA_CHANNEL_IS_WORKING,
@@ -117,6 +117,10 @@ typedef struct LedPanelConfig{
 void GdmaCheckVectorGdmaDescriptorsNode(VectorGdmaDescriptorsNode *vector);
 //--------------------------------------------------------------------------//
 
+static void IRAM_ATTR ledPanelIsr(void *arg);
+
+BaseType_t LedPanelRestart(VectorGdmaDescriptorsNode *vector);
+
 void LedPanelRemoveBuffer();
 
 void LedPanelStop(LedPanelConfig *config);
@@ -135,11 +139,11 @@ QueueVectorGdmaDescriptorsNodeState CheckQueueVectorGdmaDescriptorsNodeState();
 
 void LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(LedPanelStyle *style, uint32_t *length, uint32_t *size);
 
-void AddSignalOutputEnableLedPanel(uint16_t *buffer, uint32_t index, uint32_t address);
+static inline void AddSignalOutputEnableLedPanel(uint16_t *buffer, uint32_t index, uint32_t address);
 
-void AddSignalClkLedPanel(uint16_t *buffer, uint32_t column, uint32_t color, uint32_t address, uint32_t bit, uint32_t enable);
+static inline void AddSignalClkLedPanel(uint16_t *buffer, uint32_t column, uint32_t color, uint32_t address, uint32_t bit);
 
-void AddSignalLatchLedPanel(uint16_t *buffer, uint32_t index,  uint32_t color, uint32_t address);
+static inline void AddSignalLatchLedPanel(uint16_t *buffer, uint32_t index,  uint32_t color, uint32_t address);
 
 uint32_t GetLedPanelColorPixel(uint32_t pixelUp, uint32_t pixelDown, uint32_t bit);
 
