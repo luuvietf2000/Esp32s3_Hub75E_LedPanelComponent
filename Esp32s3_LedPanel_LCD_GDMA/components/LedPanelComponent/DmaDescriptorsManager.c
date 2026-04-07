@@ -12,11 +12,11 @@ static QueueHandle_t vectorFree = NULL;
 static QueueHandle_t vectorReady = NULL;
 static VectorGdmaDescriptorsNode *vectorTransmit = NULL;
 
-VectorGdmaDescriptorsNode *GetDmadescriptorTransmit(){
+VectorGdmaDescriptorsNode *GetDmaDescriptorTransmit(){
 	return vectorTransmit;
 }
 
-void SetDmadescriptorTransmit(VectorGdmaDescriptorsNode *vector){
+void SetDmaDescriptorTransmit(VectorGdmaDescriptorsNode *vector){
 	vectorTransmit = vector;
 }
 
@@ -110,7 +110,7 @@ LedPanelVectorInitStateEnum VectorGdmaDescriptorsNodeInit(VectorGdmaDescriptorsN
 	}
 	//-----------------------------------------------//
 	for(uint32_t i = 0; i < length; i++){
-		uint32_t isEndFrame = i != length - 1 ? SUC_EOF_DISABLE : SUC_EOF_ENABLE;
+		uint32_t isEndFrame = i == 0 ? SUC_EOF_ENABLE : SUC_EOF_DISABLE;
 		SetDw0GdmaDescriptorsNode(vector->head + i, isEndFrame, bufferSize,  bufferSize);
 		SetDw1GdmaDescriptorsNode(vector->head + i, (uint32_t) buffer + i * bufferSize);
 	}

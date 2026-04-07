@@ -48,6 +48,14 @@
 
 #define GDMA_OUT_TOTAL_EOF_CH0_INT_CLR_IS_CLEAR			1
 #define GDMA_OUT_INT_CLR_CHn_REG(x)						(GDMA_OUT_INT_CLR_CH0_REG + 192 *x)
+#define GDMA_OUT_EOF_CHn_INT_CLR						0x2
+#define GDMA_OUT_INT_ST_CHx_REG(x)                      (GDMA_OUT_INT_ST_CH0_REG + x * 192)
+
+#define GDMA_OUT_EOF_CHn_INT_ST_M						0x2
+#define GDMA_OUT_EOF_DES_ADDR_CHx_REG(x)				(GDMA_OUT_EOF_DES_ADDR_CH0_REG + 192 * x)
+#define GDMA_OUT_INT_ENA_CHx_REG(x)						(GDMA_OUT_INT_ENA_CH0_REG + 192 * x)
+#define GDMA_OUT_EOF_CH0_INT_ENA_IS_ENABLE				1
+#define GDMA_OUTLINK_RESTART_CHx_Is_RESTART				1						
 
 typedef struct GdmaDescriptorsNode{
 	uint32_t DW0;
@@ -78,6 +86,10 @@ typedef enum{
 	GDMA_INIT_OK,
 	GDMA_INIT_FAIL_CAUSE_GDMA_CHANNEL_FIND_AVAILABILITY_FAIL
 } GdmaInitState;
+
+void GdmaSetRestartFunction(GdmaConfig *config);
+
+void GdmaEnableIsrOutEof(GdmaConfig *config);
 
 void GdmaClearIsrChannel(GdmaConfig *config);
 

@@ -16,6 +16,14 @@
 #define GDMA_IS_IDLE_CONTENT					"Idle"
 #define GDMA_IS_WORKING_CONTENT					"Working"
 
+void GdmaSetRestartFunction(GdmaConfig *config){
+	WriteValueToAdress(GDMA_OUT_LINK_CHn_REG(config->channel), GDMA_OUTLINK_RESTART_CH0_S, GDMA_OUTLINK_RESTART_CH0_M, GDMA_OUTLINK_RESTART_CHx_Is_RESTART);
+}
+
+void GdmaEnableIsrOutEof(GdmaConfig *config){
+	WriteValueToAdress(GDMA_OUT_INT_ENA_CHx_REG(config->channel), GDMA_OUT_EOF_CH0_INT_ENA_S, GDMA_OUT_EOF_CH0_INT_ENA_M, GDMA_OUT_EOF_CH0_INT_ENA_IS_ENABLE);
+}
+
 void GdmaClearIsrChannel(GdmaConfig *config){
 	WriteValueToAdress(GDMA_OUT_INT_CLR_CHn_REG(config->channel), GDMA_OUT_TOTAL_EOF_CH0_INT_CLR_S,  GDMA_OUT_TOTAL_EOF_CH0_INT_CLR_M, GDMA_OUT_TOTAL_EOF_CH0_INT_CLR_IS_CLEAR);
 }

@@ -270,6 +270,7 @@ void CreateTask(){
         NULL,
         CORE_1
     );
+    /*
 	xTaskCreatePinnedToCore(
         TcpServerReceiveTask,
         "TcpServerReceiveTask",
@@ -297,6 +298,7 @@ void CreateTask(){
         &handleWifiMessageTaskHandle,
         CORE_1
     );
+    */
 }
 
 void HandleWifiMessageTask(void* pvParameter){
@@ -444,19 +446,10 @@ void TcpServerReceiveTask(void *pvParameter){
 }
 
 void LedPanelTask(void *pvParameters){
-	VectorGdmaDescriptorsNode *gdmaCurrent = NULL;
-	VectorGdmaDescriptorsNode *gdmaNew = NULL;
+	VectorGdmaDescriptorsNode *gdma = NULL;
 	while (1) {
-		int64_t start = esp_timer_get_time();
-		gdmaCurrent = gdmaNew;
-		GetDmaDescriptorReady(&gdmaNew, DMA_MANAGER_TIME_BLOCK);
-		LedPanelStartTransmit(&ledPanelConfig, gdmaNew);
-
-		
-		if(gdmaCurrent != NULL)
-			PushDmaDescriptorFree(gdmaCurrent, DMA_MANAGER_TIME_BLOCK);
-		int64_t end = esp_timer_get_time();
-		ESP_LOGE("led", "StartTransmit cost: %lld us", end - start);
+		GetDmaDescriptorReady(&gdma, DMA_MANAGER_TIME_BLOCK);
+		LedPanelRestart(&ledPanelConfig, gdma);
 		vTaskDelay(pdMS_TO_TICKS(SECOND_UINT/fps));
 	}
 }
@@ -466,12 +459,6 @@ void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters){
 	VectorGdmaDescriptorsNode *gdma = NULL;
 	ImageRaw *raw = NULL;
 	while (1) {
-		/*
-		UBaseType_t stack_remain = uxTaskGetStackHighWaterMark(NULL);
-		
-		ESP_LOGE("CoverntImageToVectorGdmadescriptorsNodeTask", "Remaining stack: %d words (~%d bytes)", 
-         stack_remain, stack_remain * 4);
-         */
 	    if (gdma == NULL) {
 	        GetDmaDescriptorFree(&gdma, DMA_MANAGER_TIME_BLOCK);
 	    }
@@ -483,20 +470,10 @@ void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters){
 
 		if (gdma != NULL && raw != NULL) {
 		
-		    int64_t start = esp_timer_get_time();
-		
-		    ESP_LOGI("led", "start convert");
-		
 		    LedPanelConvertFrameData(gdma, 
 		                             &ledPanelConfig.style, 
 		                             &ledPanelImageRaw.config, 
 		                             raw);
-		
-		    int64_t end = esp_timer_get_time();
-		
-		    ESP_LOGE("convert", "Convert time: %lld us (~%lld ms)", 
-		             end - start, 
-		             (end - start) / 1000);
 		
 		    PushDmaDescriptorReady(gdma, DMA_MANAGER_TIME_BLOCK);
 		    PushQueueImageRawFree(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
@@ -511,7 +488,7 @@ void SdCardSpiTask(void *pvParameters){
 	ClientRequestInformation client;
 	CopyState mCopyState = PENDING_COPY;
 	while (1) {
-		UBaseType_t stack_remain = uxTaskGetStackHighWaterMark(NULL);
+		//UBaseType_t stack_remain = uxTaskGetStackHighWaterMark(NULL);
 		
 		//ESP_LOGE("SdCardSpiTask", "Remaining stack: %d words (~%d bytes)", stack_remain, stack_remain * 4); 
 		RequestReadFileAndPushInQueueImageRaw(&ledPanelFile, BYTE_IN_FRAME);
@@ -525,7 +502,6 @@ BaseType_t RequestReadFileAndPushInQueueImageRaw(FileInfomation *file, uint32_t 
 	BaseType_t result = pdFALSE;
 	ImageRaw *raw;
 	if(GetQueueImageRawFree(&ledPanelImageRaw, &raw, DMA_MANAGER_TIME_NO_BLOCK) == pdTRUE){
-		int64_t start = esp_timer_get_time();
 		if(FileInfomationNameCheck(file) == FILE_INFOMATION_NAME_EMPTY)
 			RandomImageRawName(file->path);
 			
@@ -539,11 +515,7 @@ BaseType_t RequestReadFileAndPushInQueueImageRaw(FileInfomation *file, uint32_t 
 			SetFileInfomationEmty(file);
 			PushQueueImageRawFree(&ledPanelImageRaw, raw, DMA_MANAGER_TIME_NO_BLOCK);
 		}
-		int64_t end = esp_timer_get_time();
 		
-		ESP_LOGE("sd card", "read time: %lld us (~%lld ms)", 
-		             end - start, 
-		             (end - start) / 1000);
 	}
 	return result;
 }
@@ -774,6 +746,20 @@ void LedPanelConfigInit(LedPanelConfig *config){
 	
 	LedPanelInit(config, ledPanelPin, QUEUE_GDMA_DESCRIPTORS_SIZE);
 	QueueImageRawInit(&ledPanelImageRaw, QUEUE_IMAGE_RAW_SIZE, LEDPANEL_WIDTH, LEDPANEL_HEIGTH);
+	ImageRaw *raw;
+	if(GetQueueImageRawFree(&ledPanelImageRaw, &raw, IMAGE_RAW_BLOCK) == pdTRUE){
+		for(uint32_t i = 0; i < BYTE_IN_FRAME; i++){
+			*(raw->buffer + i) = 0xff;
+		}
+	}
+	VectorGdmaDescriptorsNode *gdma = NULL;
+	GetDmaDescriptorFree(&gdma, DMA_MANAGER_TIME_BLOCK);
+    LedPanelConvertFrameData(gdma, 
+                         &ledPanelConfig.style, 
+                         &ledPanelImageRaw.config, 
+                         raw);
+     PushQueueImageRawFree(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
+     LedPanelStartTransmit(&ledPanelConfig, gdma);
 }
 
 void QueueWifiMessageConfig(){

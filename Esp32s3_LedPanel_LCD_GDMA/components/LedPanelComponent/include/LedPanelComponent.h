@@ -117,9 +117,7 @@ typedef struct LedPanelConfig{
 void GdmaCheckVectorGdmaDescriptorsNode(VectorGdmaDescriptorsNode *vector);
 //--------------------------------------------------------------------------//
 
-static void IRAM_ATTR ledPanelIsr(void *arg);
-
-BaseType_t LedPanelRestart(VectorGdmaDescriptorsNode *vector);
+BaseType_t LedPanelRestart(LedPanelConfig *config, VectorGdmaDescriptorsNode *vector);
 
 void LedPanelRemoveBuffer();
 
@@ -139,12 +137,13 @@ QueueVectorGdmaDescriptorsNodeState CheckQueueVectorGdmaDescriptorsNodeState();
 
 void LedPenalCaculatorVectorGmdaDescriptiorsLedPenal(LedPanelStyle *style, uint32_t *length, uint32_t *size);
 
+/*
 static inline void AddSignalOutputEnableLedPanel(uint16_t *buffer, uint32_t index, uint32_t address);
 
 static inline void AddSignalClkLedPanel(uint16_t *buffer, uint32_t column, uint32_t color, uint32_t address, uint32_t bit);
 
 static inline void AddSignalLatchLedPanel(uint16_t *buffer, uint32_t index,  uint32_t color, uint32_t address);
-
+*/
 uint32_t GetLedPanelColorPixel(uint32_t pixelUp, uint32_t pixelDown, uint32_t bit);
 
 uint32_t GetAddressLedPanel(uint32_t row);

@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "soc/interrupts.h"
+#include "soc/soc.h"
 #include "sys/unistd.h"
 
 #define TAG_VECTOR_DESCRIPTIONS_NODE									"Vector Gdma Descriptors Node"
@@ -32,10 +33,11 @@
 //--------------------------------------------------------------------------//
 
 static uint16_t *addressByteCode = NULL;
-static BaseType_t isNotifyTask = pdTRUE;
-static TaskHandle_t task = NULL;
+volatile DRAM_ATTR static BaseType_t isNotifyTask; 	
+DRAM_ATTR static TaskHandle_t task = NULL;
 static intr_handle_t ledPanelHandle;
 DRAM_ATTR static uint32_t gdmaChannel;
+DRAM_ATTR uint32_t addrDmaNew;
 
 // Function test
 void GdmaCheckVectorGdmaDescriptorsNode(VectorGdmaDescriptorsNode *vector){
@@ -71,19 +73,45 @@ void GdmaCheckVectorGdmaDescriptorsNode(VectorGdmaDescriptorsNode *vector){
 
 //--------------------------------------------------------------------------//
 
+static inline void AddSignalOutputEnableLedPanel(uint16_t *buffer, uint32_t index, uint32_t address);
+
+static inline void AddSignalClkLedPanel(uint16_t *buffer, uint32_t column, uint32_t color, uint32_t address, uint32_t bit);
+
+static inline void AddSignalLatchLedPanel(uint16_t *buffer, uint32_t index,  uint32_t color, uint32_t address);
+
 static void IRAM_ATTR ledPanelIsr(void *arg){
-	
+	uint32_t *channel = (uint32_t*) arg;
+	uint32_t reg = REG_READ(GDMA_OUT_INT_ST_CHx_REG(*channel));
+	if(reg & GDMA_OUT_EOF_CHn_INT_ST_M){
+		REG_WRITE(GDMA_OUT_INT_CLR_CHn_REG(*channel), GDMA_OUT_EOF_CHn_INT_CLR);
+		if(isNotifyTask == pdTRUE){
+			uint32_t addr = REG_READ(GDMA_OUT_EOF_DES_ADDR_CHx_REG(*channel));
+			if(addr == addrDmaNew){
+				isNotifyTask = pdFALSE;
+				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+				vTaskNotifyGiveFromISR(task, &xHigherPriorityTaskWoken);
+				portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+			}
+		}
+	}
 }
 
-BaseType_t LedPanelRestart(VectorGdmaDescriptorsNode *vector){
-	VectorGdmaDescriptorsNode *current = GetDmadescriptorTransmit();
+BaseType_t LedPanelRestart(LedPanelConfig *config, VectorGdmaDescriptorsNode *vector){
+	VectorGdmaDescriptorsNode *current = GetDmaDescriptorTransmit();
 	if(current == NULL)
 		return pdFALSE;
 	GdmaDescriptorsNode *last = current->head + (current->length - 1);
-	SetDw2GdmaDescriptorsNode(last, (uint32_t) vector->head->DW0); 
+	SetDw2GdmaDescriptorsNode(last, (uint32_t) &vector->head->DW0); 
 	task = xTaskGetCurrentTaskHandle();
-	while(isNotifyTask == pdTRUE)
+	addrDmaNew = (uint32_t) &vector->head->DW0;
+	isNotifyTask = pdTRUE;
+	GdmaSetRestartFunction(&config->gdmaConfig);
+	while(isNotifyTask == pdTRUE){
 		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+	}
+	SetDmaDescriptorTransmit(vector);
+	SetDw2GdmaDescriptorsNode(last, (uint32_t) &current->head->DW0); 
+	PushDmaDescriptorFree(current, DMA_MANAGER_TIME_BLOCK);
 	return pdTRUE;
 }
 
@@ -208,7 +236,7 @@ LedPanelStartTransmitState LedPanelStartTransmit(LedPanelConfig *config, VectorG
 	GdmaTransmit(&config->gdmaConfig, (uint32_t) &vector->head->DW0);
 	LcdStop();
 	LcdStart();
-	SetDmadescriptorTransmit(vector);
+	SetDmaDescriptorTransmit(vector);
 	return LEDPANEL_START_TRANSMIT_OK;
 }
 
@@ -232,10 +260,15 @@ LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[], uint32_
 				  config->style.blueScale
 	);
 	//-------------------------------------------------------------------------//
-	gdmaChannel = config->gdmaConfig.channel;
-	esp_intr_alloc(ETS_DMA_OUT_CHX_INTR_SOURCE(config->gdmaConfig.channel), ESP_INTR_FLAG_IRAM, ledPanelIsr, (void*) &gdmaChannel, &ledPanelHandle);
-	LcdInit(pin);
 	GdmaInitState gdmaInitstate =  GdmaInit(&config->gdmaConfig);
+	GdmaEnableIsrOutEof(&config->gdmaConfig);
+	gdmaChannel = config->gdmaConfig.channel;
+	//esp_err_t  err = esp_intr_alloc(ETS_DMA_OUT_CHX_INTR_SOURCE(config->gdmaConfig.channel), ESP_INTR_FLAG_IRAM, ledPanelIsr, (void*) &gdmaChannel, &ledPanelHandle);
+	esp_err_t  err = esp_intr_alloc(ETS_DMA_OUT_CHX_INTR_SOURCE(config->gdmaConfig.channel), 0, ledPanelIsr, (void*) &gdmaChannel, &ledPanelHandle);
+	ESP_LOGE("Isr", "err = %d\n", err);
+	LcdInit(pin);
+	isNotifyTask = pdFALSE;
+	
 	if(gdmaInitstate == GDMA_INIT_FAIL_CAUSE_GDMA_CHANNEL_FIND_AVAILABILITY_FAIL)
 		return LED_PANEL_INIT_FAIL_CAUSE_FIND_CHANNEL_AVAILABILITY_FAIL;
 	
