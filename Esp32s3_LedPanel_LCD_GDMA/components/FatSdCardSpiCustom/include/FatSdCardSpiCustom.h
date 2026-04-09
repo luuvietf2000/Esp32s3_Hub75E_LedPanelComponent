@@ -20,8 +20,7 @@
 typedef enum{
 	FAT_SD_CARD_SPI_CUSTOM_COPY_OK,
 	FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_OPEN_FILE_FAIL,
-	FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_READ_FAIL, 
-	FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_SEEK_FAIL,
+	FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_READ_FILE_ERROR,
 	FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_FILE_END
 } FatSdCardSpiCustomCopyState;		
 
@@ -55,7 +54,7 @@ FileInfomationNameState FileInfomationNameCheck(FileInfomation *fileInformation)
 void FileInfomationInit(FileInfomation *fileInformation, uint32_t size);
 FasrSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLinkerList *list);
 
-FatSdCardSpiCustomCopyState CopySdCardSpiFile(char path[], uint8_t *des, uint32_t size, uint32_t offset);
+FatSdCardSpiCustomCopyState CopySdCardSpiFile(FILE *file, uint8_t *buffer, uint32_t size);
 esp_err_t FatSdCardSpiCustomInit(FatSdCardSpiCustomConfig *config);
 
 #endif

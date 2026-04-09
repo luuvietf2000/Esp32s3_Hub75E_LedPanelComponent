@@ -31,7 +31,7 @@ uint32_t GetValueInMessage(uint8_t *buffer, uint32_t size){
 uint32_t AddListToMessage(uint8_t *buffer, uint32_t code, DirentLinkerList *list){
 	uint32_t length = 0;
 	for(uint32_t i = 0; i < list->size; i++){
-		length += AddStringToMessage(buffer + length, code, DirentLinkerListGetIndex(list, i)->name);
+		length += AddStringToMessage(buffer + length, code, (char*)DirentLinkerListGetIndex(list, i)->buffer);
 	}
 	return length;
 }

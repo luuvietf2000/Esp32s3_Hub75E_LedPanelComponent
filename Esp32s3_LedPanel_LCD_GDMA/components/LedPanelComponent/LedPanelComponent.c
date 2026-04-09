@@ -263,9 +263,8 @@ LedPanelInitState LedPanelInit(LedPanelConfig *config, gpio_num_t pin[], uint32_
 	GdmaInitState gdmaInitstate =  GdmaInit(&config->gdmaConfig);
 	GdmaEnableIsrOutEof(&config->gdmaConfig);
 	gdmaChannel = config->gdmaConfig.channel;
-	//esp_err_t  err = esp_intr_alloc(ETS_DMA_OUT_CHX_INTR_SOURCE(config->gdmaConfig.channel), ESP_INTR_FLAG_IRAM, ledPanelIsr, (void*) &gdmaChannel, &ledPanelHandle);
-	esp_err_t  err = esp_intr_alloc(ETS_DMA_OUT_CHX_INTR_SOURCE(config->gdmaConfig.channel), 0, ledPanelIsr, (void*) &gdmaChannel, &ledPanelHandle);
-	ESP_LOGE("Isr", "err = %d\n", err);
+	esp_err_t  err = esp_intr_alloc(ETS_DMA_OUT_CHX_INTR_SOURCE(config->gdmaConfig.channel), ESP_INTR_FLAG_IRAM, ledPanelIsr, (void*) &gdmaChannel, &ledPanelHandle);
+	//esp_err_t  err = esp_intr_alloc(ETS_DMA_OUT_CHX_INTR_SOURCE(config->gdmaConfig.channel), 0, ledPanelIsr, (void*) &gdmaChannel, &ledPanelHandle);
 	LcdInit(pin);
 	isNotifyTask = pdFALSE;
 	

@@ -13,8 +13,8 @@
 #define FAT_SD_CARD_SPI_CUSTOM_INIT_FAIL_INITIALIZE_SPI_BUS_CONTENT							"Fat Sd Card Spi Custom Init Fail Cause Initialize SPI Bus"
 #define FAT_SD_CARD_SPI_CUSTOM_INIT_FAIL_MOUNT_SD_CARD_CONTENT								"Failed to mount SD card: %s"
 #define TAG_FAT_SD_CARD_SPI_CUSTOM															"FatSdCardSpiCustom"
-#define FAT_SD_CARD_SPI_CUSTOM_OPEN_FAIL_CONTENT											"Open %s fail"
-#define FAT_SD_CARD_SPI_CUSTOM_SEEK_FAIL_CONTENT											"Seek %s fail offset %lu"
+#define FAT_SD_CARD_SPI_CUSTOM_OPEN_FAIL_CONTENT											"Open fail"
+#define FAT_SD_CARD_SPI_CUSTOM_SEEK_FAIL_CONTENT											"Seek fail offset %lu"
 #define FAT_SD_CARD_SPI_CUSTOM_READ_FAIL_CONTENT											"Read %s fail"
 #define FAT_SD_CARD_SPI_CUSTOM_END_FILE_CONTENT												"End file %s"
 #define FAT_SD_CARD_SPI_CUSTOM_READ_BYTE													"Read %lu byte"
@@ -39,7 +39,6 @@ void FileInfomationInit(FileInfomation *fileInformation, uint32_t size){
 }
 
 FasrSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLinkerList *list){
-	DirentLinkerListInit(list);
 	DIR *dir = opendir(path);
 	struct dirent *entry;
 
@@ -50,51 +49,45 @@ FasrSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLin
     }
 	while ((entry = readdir(dir)) != NULL)
 	{
-		DirentNode *newNode = heap_caps_malloc(sizeof(DirentNode), MALLOC_CAP_DEFAULT);
-		newNode->name = heap_caps_malloc(255 * sizeof(char), MALLOC_CAP_DEFAULT);
-		newNode->next = NULL;
-		memcpy(newNode->name, entry->d_name, strlen(entry->d_name) + 1);
-		DirentLinkerListPush(list, newNode);
+		DirentNode *newNode = DirentLinkerListGetIndex(list, list->size++);
+		memcpy(newNode->buffer, entry->d_name, strlen(entry->d_name) + 1);
 	}
+	
     closedir(dir);
 	
 	return FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_OK;
 }
 
 
-FatSdCardSpiCustomCopyState CopySdCardSpiFile(char path[], uint8_t *des, uint32_t size, uint32_t offset){
-	FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_OPEN_FAIL_CONTENT, path);
-        vTaskDelete(NULL);
+FatSdCardSpiCustomCopyState CopySdCardSpiFile(FILE *file, uint8_t *buffer, uint32_t size){
+	if (file == NULL) {
+        //ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_OPEN_FAIL_CONTENT);
         return FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_OPEN_FILE_FAIL;
     }
-    
-    fseek(file, offset, SEEK_SET);
-    
-    size_t totalBytes = 0;
+	size_t totalBytes = 0;
     size_t readBytes = 0;
-    
 	while (totalBytes < size) {
-	
 	    size_t remain = size - totalBytes;
-	
 	    readBytes = fread(
-	        des + totalBytes,
+	        buffer + totalBytes,
 	        1,
 	        remain,
 	        file
 	    );
 	
 	    if (readBytes == 0){
-			fclose(file);
-			ESP_LOGI(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_END_FILE_CONTENT, path);
-	        return FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_FILE_END;
+			if(feof(file)){
+				ESP_LOGI(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_END_FILE_CONTENT);
+				return FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_FILE_END;
+			} else if(ferror(file)){
+				ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, "FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_READ_FILE_ERROR");
+				return FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_READ_FILE_ERROR;
+			}
+			clearerr(file);
 	    }
 	
 	    totalBytes += readBytes;
 	}
-	fclose(file);
 	ESP_LOGI(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_READ_BYTE, (unsigned long) totalBytes);
 	return FAT_SD_CARD_SPI_CUSTOM_COPY_OK;
 }
