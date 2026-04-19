@@ -24,7 +24,7 @@ uint32_t GetUlongInMessage(uint8_t *buffer){
 uint32_t GetValueInMessage(uint8_t *buffer, uint32_t size){
 	uint32_t code = 0;
 	for(uint32_t i = 0; i < size; i++)
-		code |= (*(buffer + i) << (size - i - 1));
+		code |= ((uint32_t)buffer[i] << ((size - i - 1) * 8));
 	return code;
 }
 
@@ -33,6 +33,14 @@ uint32_t AddListToMessage(uint8_t *buffer, uint32_t code, DirentLinkerList *list
 	for(uint32_t i = 0; i < list->size; i++){
 		length += AddStringToMessage(buffer + length, code, (char*)DirentLinkerListGetIndex(list, i)->buffer);
 	}
+	return length;
+}
+
+uint32_t AddULongLongToMessage(uint8_t *buffer, uint32_t code, uint32_t value){
+	uint32_t length = CODE_FIELD_MESSAGE_SIZE + LENGTH_FIELD_MESSAGE_SIZE + ULONG_MESSAGE_TYPE;
+	AddHeaderFieldMessage(buffer, code, ULONG_MESSAGE_TYPE);
+	for(uint32_t i = 0; i < CODE_FIELD_MESSAGE_SIZE; i++)
+		*(buffer + i + CONTENT_FIELD_MESSAGE_START) = GetByteInValue(value, ULONGLONG_MESSAGE_TYPE, i);
 	return length;
 }
 
@@ -52,7 +60,7 @@ uint32_t AddStringToMessage(uint8_t *buffer, uint32_t code, char *path){
 }
 
 uint8_t GetByteInValue(uint32_t value, uint32_t size, uint32_t index){
-	return (UINT_BYTE_MAX << (UINT_BIT * (size - index - 1))) & value;
+	return (value >> (UINT_BIT * (size - index - 1))) & UINT_BYTE_MAX;
 }
 
 void AddHeaderFieldMessage(uint8_t *buffer, uint32_t code, uint32_t length){

@@ -25,6 +25,14 @@ typedef enum{
 } FatSdCardSpiCustomCopyState;		
 
 typedef enum{
+    FAT_SD_CARD_SPI_CUSTOM_WRITE_OK,
+    FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_OPEN_FILE_FAIL,
+    FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_WRITE_FILE_ERROR,
+    FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_PARTIAL_WRITE,
+    FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_DISK_FULL
+} FatSdCardSpiCustomWriteState;
+
+typedef enum{
 	FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_OK,
 	FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_FAIL_CAUSE_OPEN_DERECTORY_FAIL
 } FasrSdCardSpiCustomReadListFileState;
@@ -49,11 +57,12 @@ typedef struct FileInfomation{
 	uint32_t offset;
 } FileInfomation;
 
+void GetSdCardInfo(uint64_t *total, uint64_t *free, uint64_t *used);
 void SetFileInfomationEmty(FileInfomation *fileInformation);
 FileInfomationNameState FileInfomationNameCheck(FileInfomation *fileInformation);
 void FileInfomationInit(FileInfomation *fileInformation, uint32_t size);
 FasrSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLinkerList *list);
-
+FatSdCardSpiCustomWriteState WriteSdCardSpiFileOptimized(FILE *file, uint8_t *buffer, uint32_t size);
 FatSdCardSpiCustomCopyState CopySdCardSpiFile(FILE *file, uint8_t *buffer, uint32_t size);
 esp_err_t FatSdCardSpiCustomInit(FatSdCardSpiCustomConfig *config);
 

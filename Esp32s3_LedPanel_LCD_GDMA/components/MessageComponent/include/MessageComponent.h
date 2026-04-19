@@ -16,13 +16,14 @@
 #define BYTE_LENGTH_MAX																4
 
 #define ULONG_MESSAGE_TYPE															4
+#define ULONGLONG_MESSAGE_TYPE														8
 
 typedef struct HeaderFieldMessage{
 	uint32_t code;
 	uint32_t length;
 } HeaderFieldMessage;
 
-
+uint32_t AddULongLongToMessage(uint8_t *buffer, uint32_t code, uint32_t value);
 void GetFieldInMessage(uint8_t *buffer, HeaderFieldMessage *header);
 uint32_t GetUlongInMessage(uint8_t *buffer);
 uint32_t GetValueInMessage(uint8_t *buffer, uint32_t size);

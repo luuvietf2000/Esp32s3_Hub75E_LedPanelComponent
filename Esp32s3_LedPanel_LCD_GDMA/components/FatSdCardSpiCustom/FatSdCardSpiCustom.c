@@ -21,6 +21,55 @@
 #define FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_FAIL_CAUSE_OPEN_DERECTORY_FAIL_CONTENT		"FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_FAIL_CAUSE_OPEN_DERECTORY_FAIL"
 
 
+void GetSdCardInfo(uint64_t *total, uint64_t *free, uint64_t *used) {
+    FATFS *fs;
+    DWORD free_clusters;
+
+    FRESULT res = f_getfree("0:", &free_clusters, &fs);
+
+    if (res != FR_OK) {
+        ESP_LOGE("SD", "f_getfree failed: %d", res);
+        return;
+    }
+
+    DWORD total_clusters = fs->n_fatent - 2;
+
+    *total = (uint64_t) total_clusters * fs->csize * 512;
+    *free  = (uint64_t) free_clusters  * fs->csize * 512;
+    *used  = *total - *free;
+
+    ESP_LOGI("SD", "Total: %llu MB", *total / (1024 * 1024));
+    ESP_LOGI("SD", "Free : %llu MB", *free  / (1024 * 1024));
+    ESP_LOGI("SD", "Used : %llu MB", *used  / (1024 * 1024));
+}
+
+FatSdCardSpiCustomWriteState WriteSdCardSpiFileOptimized(FILE *file, uint8_t *buffer, uint32_t size){
+    if (file == NULL) {
+        ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, "WRITE FILE OPEN FAIL");
+        return FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_OPEN_FILE_FAIL;
+    }
+
+    size_t written = fwrite(buffer, 1, size, file);
+
+    if (written != size){
+        if (ferror(file)){
+            ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, "WRITE FILE ERROR");
+            return FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_WRITE_FILE_ERROR;
+        }
+
+        if (written == 0){
+            ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, "DISK FULL");
+            return FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_DISK_FULL;
+        }
+
+        ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, "PARTIAL WRITE");
+        return FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_PARTIAL_WRITE;
+    }
+
+    ESP_LOGI(TAG_FAT_SD_CARD_SPI_CUSTOM, "WRITE BYTE: %lu", (unsigned long)written);
+    return FAT_SD_CARD_SPI_CUSTOM_WRITE_OK;
+}
+
 void SetFileInfomationEmty(FileInfomation *fileInformation){
 	*(fileInformation->path + FAT_SD_CARD_SPI_CUSTOM_INDEX_NAME_CHECK) = FAT_SD_CARD_SPI_CUSTOM_CHAR_EMPTY;
 	fileInformation->offset = 0;
@@ -61,7 +110,7 @@ FasrSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLin
 
 FatSdCardSpiCustomCopyState CopySdCardSpiFile(FILE *file, uint8_t *buffer, uint32_t size){
 	if (file == NULL) {
-        //ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_OPEN_FAIL_CONTENT);
+        ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_OPEN_FAIL_CONTENT);
         return FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_OPEN_FILE_FAIL;
     }
 	size_t totalBytes = 0;
