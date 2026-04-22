@@ -16,7 +16,7 @@
 #define FAT_SD_CARD_SPI_CUSTOM_OPEN_FAIL_CONTENT											"Open fail"
 #define FAT_SD_CARD_SPI_CUSTOM_SEEK_FAIL_CONTENT											"Seek fail offset %lu"
 #define FAT_SD_CARD_SPI_CUSTOM_READ_FAIL_CONTENT											"Read %s fail"
-#define FAT_SD_CARD_SPI_CUSTOM_END_FILE_CONTENT												"End file %s"
+#define FAT_SD_CARD_SPI_CUSTOM_END_FILE_CONTENT												"End file"
 #define FAT_SD_CARD_SPI_CUSTOM_READ_BYTE													"Read %lu byte"
 #define FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_FAIL_CAUSE_OPEN_DERECTORY_FAIL_CONTENT		"FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_FAIL_CAUSE_OPEN_DERECTORY_FAIL"
 
@@ -34,9 +34,9 @@ void GetSdCardInfo(uint64_t *total, uint64_t *free, uint64_t *used) {
 
     DWORD total_clusters = fs->n_fatent - 2;
 
-    *total = (uint64_t) total_clusters * fs->csize * 512;
-    *free  = (uint64_t) free_clusters  * fs->csize * 512;
-    *used  = *total - *free;
+	*total = ((uint64_t) total_clusters * fs->csize * 512) / (1024 * 1024);
+	*free  = ((uint64_t) free_clusters  * fs->csize * 512) / (1024 * 1024);
+    *used  = (uint64_t) *total - *free;
 
     ESP_LOGI("SD", "Total: %llu MB", *total / (1024 * 1024));
     ESP_LOGI("SD", "Free : %llu MB", *free  / (1024 * 1024));
@@ -87,7 +87,7 @@ void FileInfomationInit(FileInfomation *fileInformation, uint32_t size){
 	SetFileInfomationEmty(fileInformation);
 }
 
-FasrSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLinkerList *list){
+FatSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLinkerList *list){
 	DIR *dir = opendir(path);
 	struct dirent *entry;
 
@@ -126,7 +126,7 @@ FatSdCardSpiCustomCopyState CopySdCardSpiFile(FILE *file, uint8_t *buffer, uint3
 	
 	    if (readBytes == 0){
 			if(feof(file)){
-				ESP_LOGI(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_END_FILE_CONTENT);
+				//ESP_LOGI(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_END_FILE_CONTENT);
 				return FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_FILE_END;
 			} else if(ferror(file)){
 				ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, "FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_READ_FILE_ERROR");
@@ -137,7 +137,7 @@ FatSdCardSpiCustomCopyState CopySdCardSpiFile(FILE *file, uint8_t *buffer, uint3
 	
 	    totalBytes += readBytes;
 	}
-	ESP_LOGI(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_READ_BYTE, (unsigned long) totalBytes);
+	//ESP_LOGI(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_READ_BYTE, (unsigned long) totalBytes);
 	return FAT_SD_CARD_SPI_CUSTOM_COPY_OK;
 }
 

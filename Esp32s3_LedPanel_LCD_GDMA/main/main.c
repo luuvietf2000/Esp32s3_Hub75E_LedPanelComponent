@@ -3,7 +3,9 @@
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
+#include "DirentLinkerListComponent.h"
 #include "DmascriporsManager.h"
+#include "Hub75ELut.h"
 #include "LedPanelComponent.h"
 #include "MessageComponent.h"
 #include "QueueImageRaw.h"
@@ -54,15 +56,16 @@
 #define WIFI_MESSAGE_QUEUE_BUFFER_SIZE												(HEADER_WIFI_MESSAGE + BYTE_IN_FRAME) + UINT_WIFI_MESSAFE_HEADER_MAX
 #define UINT_WIFI_MESSAFE_HEADER_MAX												500
 #define BYTE_IN_FRAME																(LEDPANEL_WIDTH * LEDPANEL_HEIGTH * HUB75E_LUT_COLOR)		
-#define SD_CARD_FREQ																SDMMC_FREQ_HIGHSPEED
+#define SD_CARD_FREQ																4000
 #define MSG_WIFI_ID																	0x99
 //-------------------------------------------------------------------------------/
+#define QUEUE_SD_CARD_REQUEST_LENGTH												10
 #define SECOND_UINT																	1000
 #define DIRECTORY_NAME																"ImageRaw"
 #define PATH_DIR_IMAGE_RAW															FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH "/" DIRECTORY_NAME "/"
 #define SIZE_NAME																	256
 #define BUFFER_SIZE																	4096
-#define FPS_DEFAULT																	4
+#define FPS_DEFAULT																	24
 #define PORT																		1111
 #define WIFI_AP_SSID 																"ESP32_LED_PANEL_WIFI"
 #define WIFI_AP_PASS 																"12345678"
@@ -136,34 +139,71 @@ typedef enum{
 	WRITE_BLOCK_SETUP_DONE					= 0x333,
 	WRITE_BLOCK_MSG							= 0x366,
 	WRITE_FILE_ERROR						= 0x401,
-	SD_CARD_USED 							= 0x410
+	SD_CARD_USED 							= 0x410,
+	SD_CARD_TOTAL 							= 0x415,
+	BYTE_CONTENT							= 0x999
 } CodeOpEnum;
 
-typedef enum{
-	READ_LIST_FILE_IN_DIRECTORY_STATE,
-	READ_FILE_STATE,
-	WRITE_FILE_STATE,
-	NONE_FILE_STATE
-} FileCommunicationState;
-
-typedef enum{
-	CLIENT_REQUEST,
-	DONE_CLIENT_REQUEST
-} ClientRequestState;
+typedef enum SdCardRequestType{
+	SD_CARD_READ_FILE_REQUEST,
+	SD_CARD_WRITE_FILE_REQUEST,
+	SD_CARD_OPEN_FILE_REQUEST,
+	SD_CARD_GET_LIST_FILE_REQUEST,
+	SD_CARD_CLOSE_FILE_REQUEST,
+	SD_CARD_GET_MEMORY_CARD_REQUEST
+} SdCardRequestType;
 
 //-------------------------------------------------------------------------------/
 
-typedef struct ClientRequestInformation{
-	FileCommunicationState fileState;
-	ClientRequestState clientState;
-	int mSocket;
+typedef struct{
 	FILE *file;
-	uint32_t codeMsg;
-	uint32_t block;
-	uint32_t countMsg;
-	uint32_t msgWrite;
-	FileInfomation f;
-} ClientRequestInformation;
+	uint8_t *buffer;
+	uint32_t length;
+	FatSdCardSpiCustomCopyState *result;
+} SdCardReadFileInfo;
+
+typedef struct{
+	FILE *file;
+} SdCardCloseFileInfo;
+
+typedef struct{
+	FILE *file;
+	uint8_t *buffer;
+	uint32_t length;
+	FatSdCardSpiCustomWriteState *result;
+} SdCardWriteFileInfo;
+
+typedef struct{
+	FILE *file;
+	char *path;
+	char *type;
+} SdCardOpenFileinfo;
+
+typedef struct{
+	char *path;
+	DirentLinkerList *list;
+	FatSdCardSpiCustomReadListFileState *result;
+} SdCardGetListFileInfo;
+
+typedef struct{
+	uint64_t *free;
+	uint64_t *used;
+	uint64_t *total;
+} SdCardGetMemoryInfo;
+
+typedef struct{
+	SdCardRequestType type;
+	union{
+		SdCardReadFileInfo readField;
+		SdCardWriteFileInfo writeField;
+		SdCardOpenFileinfo openField;
+		SdCardGetListFileInfo getListFileField;
+		SdCardCloseFileInfo closeField;
+		SdCardGetMemoryInfo memoryField;
+	};
+	
+	TaskHandle_t taskRequest;
+} SdCardRequest;
 
 typedef struct sdCardMemory{
 	uint64_t total;
@@ -171,14 +211,16 @@ typedef struct sdCardMemory{
 	uint64_t used;
 } SdCardMemory;
 
+
 //-------------------------------------------------------------------------------//
+QueueHandle_t queueSdCardRequest;
+
 SdCardMemory sdMemoryInfo;
-SemaphoreHandle_t sdMemoryInfoMutex;
 DirentLinkerList list;
 SemaphoreHandle_t listMuxtex;
+
 QueueWifiMessage queueMsgSend, queueMsgReceive;
 QueueImageRaw ledPanelImageRaw;
-QueueImageRaw wifiImageRaw;
 const char pathImageRawFolder[] = FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH "/" PATH_DIR_IMAGE_RAW;
 LedPanelConfig ledPanelConfig;
 
@@ -186,19 +228,21 @@ FatSdCardSpiCustomConfig sdCardConfig;
 uint32_t fps;
 uint32_t timeLedPanelUpdate;
 int tcpServerSocket;
-ClientRequestInformation mClientRequestInformation;
-SemaphoreHandle_t clientRequestMutex;
 //-------------------------------------------------------------------------------/
-void WriteFileInFolder(ClientRequestInformation *clientRequest);
-void WriteFileRequest(ClientRequestInformation *clientRequest, char *nameFile, uint32_t size, uint32_t countMsg);
-void HandleClientRequestSdCard(ClientRequestInformation *clientRequest);
-void ReadFileRequest(ClientRequestInformation *clientRequest, uint8_t *nextDataPacket, uint32_t size);
+void SetSdCardGetMemoryRequest(SdCardRequest *request, uint64_t *free, uint64_t *used, uint64_t *total, TaskHandle_t task);
+void ReadSdCardTotalRequest(int *client);
+void ReadSdCardUsedRequest(int *client);
+void SetSdCardOpenFileRequest(SdCardRequest *request, char *path, char* mode, TaskHandle_t task);
+void SetSdCardCloseFileRequest(SdCardRequest *request, FILE *file, TaskHandle_t task);
+void SetSdCardReadFileRequest(SdCardRequest *request, FILE *file, uint8_t *buffer, uint32_t length, FatSdCardSpiCustomCopyState *state, TaskHandle_t task);
+void ReadFileRequest(int *client, uint8_t *name, uint32_t size, TaskHandle_t task);
 void TcpServerConfig();
 void WifiConfig();
 RandomImageRawNameState RandomImageRawName(char *path, DirentLinkerList *list);
 void LedPanelConfigInit(LedPanelConfig *config);
 void FatSdCardSpiCustomConfigInit(FatSdCardSpiCustomConfig *config, SdCardMemory *info);
 void LedPanelTask(void *pvParameters);
+void LedPanelImageRawReadTask(void *pvParameters);
 void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters);
 void SdCardSpiTask(void *pvParameters);
 void TcpServerReceiveTask(void *pvParameter);
@@ -207,15 +251,11 @@ void SemaphoreInit();
 void CreateTask();
 void SetupParameter();
 void HandleWifiMessageTask(void* pvParameter);
-
-void HandleMessage(WifiMessage *message, ClientRequestInformation *clientRequest);
-void ReadListFileRequest(ClientRequestInformation *clientRequest);
-void ReadListFileInImageRawFolder(ClientRequestInformation *clientRequest, DirentLinkerList *list);
-void ReadListFileRequest(ClientRequestInformation *clientRequest);
-void SetDoneHandleRequestClineInfomation(ClientRequestInformation *clientRequest);
-void ReadFileInFolder(ClientRequestInformation *clientRequest);
-void RequestReadFileAndPushInQueueImageRaw(FILE *file, uint32_t size, char *path, DirentLinkerList *list);
-void PushBlockInQueueBlock(ClientRequestInformation *clientRequest, uint8_t *data, uint32_t indexMsg);
+void ReadListFileInImageRawFolder(int *client, DirentLinkerList *list);
+uint32_t WriteFileSetupRequest(int *client, FILE **file, char* name, uint32_t size, TaskHandle_t task);
+BaseType_t WriteFileRequest(int *client, FILE * file, uint8_t *buffer, uint32_t code, uint32_t size, uint32_t *index, uint32_t countMsg, TaskHandle_t task);
+void SetSdCardWriteFileRequest(SdCardRequest *request, FILE *file, uint8_t *buffer, uint32_t size, FatSdCardSpiCustomWriteState *result, TaskHandle_t task);
+void FindAndSwapNameFile(char *name, DirentLinkerList *list);
 //-------------------------------------------------------------------------------/
 
 void app_main(void)
@@ -241,249 +281,275 @@ void app_main(void)
 }
 
 //-------------------------------------------------------------------------------/
+void SetSdCardGetMemoryRequest(SdCardRequest *request, uint64_t *free, uint64_t *used, uint64_t *total, TaskHandle_t task){
+	request->type = SD_CARD_GET_MEMORY_CARD_REQUEST;
+	request->memoryField.free = free;
+	request->memoryField.total = total;
+	request->memoryField.used = used;
+	request->taskRequest = task;
+	xQueueSend(queueSdCardRequest, &request, portMAX_DELAY);
+	ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+}
 
 void HandleWifiMessageTask(void* pvParameter){
 	WifiMessage *msg;
+	HeaderFieldMessage info;
+	FILE *file;
+	TaskHandle_t task = xTaskGetCurrentTaskHandle();
+	uint32_t code;
+	uint32_t countMsg;
+	uint32_t indexMsg;
 	while(1){
 		if(GetQueueWifiMessageMsgReady(&queueMsgReceive, &msg, QUEUE_MESSAGE_WIFI_BLOCK) == pdTRUE){
-			HandleMessage(msg, &mClientRequestInformation);
+			GetFieldInMessage(msg->buffer, &info);
+			switch(info.code){
+				case LIST_FILE_IN_DIRECTORY_IMAGE_RAW_FOLDER:
+					if(xSemaphoreTake(listMuxtex, portMAX_DELAY) == pdTRUE){
+						ReadListFileInImageRawFolder(&msg->client, &list);
+						xSemaphoreGive(listMuxtex);
+					}		
+					break;
+				case READ_FILE_IN_LIST:
+					ReadFileRequest(&msg->client, msg->buffer + CONTENT_FIELD_MESSAGE_START, info.length, task);
+					break;
+				case SD_CARD_USED: 
+					ReadSdCardUsedRequest(&msg->client);
+					break;
+				case SD_CARD_TOTAL:
+					ReadSdCardTotalRequest(&msg->client);
+					break;
+				case WRITE_BLOCK_FILE: {
+					uint32_t sizeName = info.length;
+					GetFieldInMessage( msg->buffer + CONTENT_FIELD_MESSAGE_START + sizeName, &info);
+					if(info.code == TOTAL_BLOCK_IN_IN_FILE){
+						indexMsg = 0;
+						countMsg = GetUlongInMessage(msg->buffer + CONTENT_FIELD_MESSAGE_START + sizeName);
+						code = WriteFileSetupRequest(&msg->client, &file, (char*)msg->buffer + CONTENT_FIELD_MESSAGE_START, sizeName, task);
+					}
+					ESP_LOGI("ptr", "ptr=%p", file);
+					break;
+				}
+				
+				case WRITE_BLOCK_MSG: {
+					uint32_t codeMsg = GetUlongInMessage(msg->buffer);
+					if(codeMsg != code)
+						break;
+					GetFieldInMessage(msg->buffer + HEADER_WIFI_MESSAGE, &info);
+					if(info.code == BYTE_CONTENT){
+						ESP_LOGI("HandleWifiMessageTask", "write request");
+						WriteFileRequest(&msg->client,
+										file,
+										msg->buffer + HEADER_WIFI_MESSAGE + CONTENT_FIELD_MESSAGE_START,
+										code,
+										info.length,
+										&indexMsg,
+										countMsg,
+										task
+						);
+					}
+					break;
+				}
+				
+			}
 			PushQueueWifiMessagePointerFree(&queueMsgReceive, msg, QUEUE_MESSAGE_WIFI_BLOCK);
 		}
 	}
 }
 
-
-void SdCardSpiTask(void *pvParameters){
-	FasrSdCardSpiCustomReadListFileState listState= GetListFileSdCardSPI(PATH_DIR_IMAGE_RAW, &list);
-	if(FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_OK != listState)
-		vTaskDelete(NULL);
-	char *ledPanelPath = heap_caps_malloc(sizeof(char) * LIST_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
-	RandomImageRawNameState randomState = RandomImageRawName(ledPanelPath, &list);
-	FILE *ledPanelFile = fopen(ledPanelPath, "rb");
-	while (1) {
-		//int64_t start = esp_timer_get_time();
-		if(randomState == RANDOM_IMAGE_RAW_NAME_OK)
-			RequestReadFileAndPushInQueueImageRaw(ledPanelFile, BYTE_IN_FRAME, ledPanelPath, &list);
-		//int64_t end = esp_timer_get_time();
-		//ESP_LOGE("Read card", "Read time: %lld us", end - start);
-		//HandleClientRequestSdCard(&mClientRequestInformation);
-		
-		//vTaskDelay(pdMS_TO_TICKS(1));
-	}
-}
-
 //-------------------------------------------------------------------------------/
-
-void HandleClientRequestSdCard(ClientRequestInformation *clientRequest){
-	if(xSemaphoreTake(clientRequestMutex, 0) == pdTRUE){
-		if(clientRequest->clientState == CLIENT_REQUEST){
-			switch(clientRequest->fileState){
-				case READ_FILE_STATE:
-					ReadFileInFolder(clientRequest);
-					break;
-				case WRITE_FILE_STATE:
-					WriteFileInFolder(clientRequest);
-					break;
-				default:
-					break;
-			}
-		}
-		xSemaphoreGive(clientRequestMutex);
-	}
-}
-void WriteFileInFolder(ClientRequestInformation *clientRequest){
-	ImageRaw *raw;
-	if(GetQueueImageRawReady(&wifiImageRaw, &raw, IMAGE_RAW_NO_BLOCK) == pdTRUE){
-		if(clientRequest->block == 0)
-			clientRequest->file = fopen(clientRequest->f.path, "wb");
-		FatSdCardSpiCustomWriteState state = WriteSdCardSpiFileOptimized(clientRequest->file, raw->buffer, BYTE_IN_FRAME);
-		PushQueueImageRawFree(&wifiImageRaw, raw, IMAGE_RAW_BLOCK);
-		if(FAT_SD_CARD_SPI_CUSTOM_WRITE_OK == state && clientRequest->block != clientRequest->countMsg){
-			clientRequest->block++;
-			return;
-		}		
-		fclose(clientRequest->file);
-		WifiMessage *msg; 	
-		GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK);
-		msg->length = 0;
-		switch(state){
-			case FAT_SD_CARD_SPI_CUSTOM_WRITE_OK:
-			case FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_WRITE_FILE_ERROR:
-			case FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_PARTIAL_WRITE:
-				msg->length += AddUlongToMessage(msg->buffer + msg->length, WRITE_FILE_ERROR, state);
-				if(xSemaphoreTake(sdMemoryInfoMutex, portMAX_DELAY) == pdTRUE){
-					GetSdCardInfo(&sdMemoryInfo.total, &sdMemoryInfo.free, &sdMemoryInfo.used);
-					msg->length += AddUlongToMessage(msg->buffer, SD_CARD_USED, (uint32_t) sdMemoryInfo.used / 1024 / 1024);
-				}
-			case FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_OPEN_FILE_FAIL:
-				msg->length += AddUlongToMessage(msg->buffer + msg->length, TOTAL_BLOCK_IN_IN_FILE, clientRequest->countMsg);
-			default:
-				break;
-		}
-		PushQueueWifiMessageMsgReady(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
-	}
-}
-
-void HandleMessage(WifiMessage *message, ClientRequestInformation *clientRequest){
-	HeaderFieldMessage info;
-	clientRequest->clientState = CLIENT_REQUEST;
-	clientRequest->mSocket = message->client;
-	GetFieldInMessage( message->buffer, &info);
-	
-	//ESP_LOGE("Size", "lu", msg->length);
-	/*
-	for(uint i = 0; i < 4; i++)
-		printf("0x%02X\n", message->buffer[i]);
-	printf("%llu\n", (unsigned long long) info.code);
-	*/
-	switch(info.code){
-		case LIST_FILE_IN_DIRECTORY_IMAGE_RAW_FOLDER:
-			ReadListFileRequest(clientRequest);
-			break;
-		case READ_FILE_IN_LIST:
-			ReadFileRequest(clientRequest, message->buffer + CONTENT_FIELD_MESSAGE_START, info.length);
-			break;
-		case WRITE_BLOCK_FILE: {
-			uint32_t sizeName = info.length;
-			GetFieldInMessage( message->buffer + CONTENT_FIELD_MESSAGE_START + sizeName, &info);
-			if(info.code == TOTAL_BLOCK_IN_IN_FILE){
-				uint32_t countMsg = GetUlongInMessage(message->buffer + CONTENT_FIELD_MESSAGE_START + sizeName + CONTENT_FIELD_MESSAGE_START);
-				WriteFileRequest(clientRequest, (char*) message->buffer + CONTENT_FIELD_MESSAGE_START, sizeName, countMsg);
-			}
-			break;
-		}
-		case WRITE_BLOCK_MSG: {
-			uint32_t indexMsg = GetUlongInMessage(message->buffer + CONTENT_FIELD_MESSAGE_START);
-			PushBlockInQueueBlock(clientRequest, message->buffer + info.length, indexMsg);
+void FindAndSwapNameFile(char *name, DirentLinkerList *list){
+	char temp[SIZE_NAME];
+	uint32_t index = 0;
+	DirentNode *one = NULL;
+	DirentNode *find = NULL;
+	for(;index < list->size; index++){
+		one = DirentLinkerListGetIndex(list, index);
+		if(strcmp((char *)one->buffer, name) == 0){
+			memcpy(temp, one->buffer, strlen((char*)one->buffer));
+			find = one;
 			break;
 		}
 	}
-}
-
-void PushBlockInQueueBlock(ClientRequestInformation *clientRequest, uint8_t *data, uint32_t indexMsg){
-	if(xSemaphoreTake(clientRequestMutex, portMAX_DELAY) == pdTRUE){
-		if(indexMsg == clientRequest->msgWrite){
-			clientRequest->msgWrite++;
-			ImageRaw *raw;
-			if(GetQueueImageRawFree(&wifiImageRaw, &raw, IMAGE_RAW_BLOCK) == pdTRUE){
-				memcpy(raw->buffer, data, BYTE_IN_FRAME);
-				PushQueueImageRawReady(&wifiImageRaw, raw, IMAGE_RAW_BLOCK);
-			}
-			xSemaphoreGive(clientRequestMutex);
-		}
+	DirentNode *two = DirentLinkerListGetIndex(list, list->size - 1);
+	if(find != NULL){
+		memcpy(one->buffer, two->buffer, strlen((char*)two->buffer) + 1);
+		memcpy(two->buffer, temp, strlen(temp) + 1);
+		list->size--;
+	} else {
+		two = two->next;
+		memcpy(two->buffer, name, strlen(name));
+		two->buffer[strlen(name)] = '\0';
 	}
 }
 
-void WriteFileRequest(ClientRequestInformation *clientRequest, char *nameFile, uint32_t size, uint32_t countMsg){
-	if(xSemaphoreTake(clientRequestMutex, portMAX_DELAY) == pdTRUE){
-		xSemaphoreGive(clientRequestMutex);
-		char *name = clientRequest->f.path;;
-		memcpy(name, PATH_DIR_IMAGE_RAW, strlen(PATH_DIR_IMAGE_RAW));
-		memcpy(name + strlen(PATH_DIR_IMAGE_RAW), nameFile, size);
-		name[strlen(PATH_DIR_IMAGE_RAW) + size] = '\0'; 
-		clientRequest->fileState = WRITE_FILE_STATE;
-		clientRequest->codeMsg = esp_random();
-		clientRequest->block = 0;
-		clientRequest->countMsg = countMsg;
-		clientRequest->msgWrite = 0;
-		WifiMessage *msg;
-		if(GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK) == pdTRUE){
-			uint32_t size = AddUlongToMessage(msg->buffer, WRITE_BLOCK_SETUP_DONE, clientRequest->codeMsg);
-			msg->length = size;
-			msg->client = clientRequest->mSocket;
-			PushQueueWifiMessageMsgReady(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
-		}
-		xSemaphoreGive(clientRequestMutex);
-	}
+void SetSdCardWriteFileRequest(SdCardRequest *request, FILE *file, uint8_t *buffer, uint32_t size, FatSdCardSpiCustomWriteState *result, TaskHandle_t task){
+	request->type = SD_CARD_WRITE_FILE_REQUEST;
+	request->writeField.file = file;
+	request->writeField.buffer = buffer;
+	request->writeField.length = size;
+	request->writeField.result = result;
+	request->taskRequest = task;
+	xQueueSend(queueSdCardRequest, &request, portMAX_DELAY);
+	ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 }
 
-void ReadFileRequest(ClientRequestInformation *clientRequest, uint8_t *nextDataPacket, uint32_t size){
-	if(xSemaphoreTake(clientRequestMutex, portMAX_DELAY) == pdTRUE){
-		char *name = clientRequest->f.path;
-		memcpy(name, PATH_DIR_IMAGE_RAW, strlen(PATH_DIR_IMAGE_RAW));
-		memcpy(name + strlen(PATH_DIR_IMAGE_RAW), nextDataPacket, size);
-		name[strlen(PATH_DIR_IMAGE_RAW) + size] = '\0'; 
-		clientRequest->fileState = READ_FILE_STATE;
-		clientRequest->codeMsg = esp_random();
-		clientRequest->block = 0;
-		WifiMessage *msg;
-		if(GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK) == pdTRUE){
-			uint32_t size = AddUlongToMessage(msg->buffer, READ_FILE_SETUP_DONE, clientRequest->codeMsg);
-			msg->length = size;
-			msg->client = clientRequest->mSocket;
-			PushQueueWifiMessageMsgReady(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
-		}
-		xSemaphoreGive(clientRequestMutex);
+BaseType_t WriteFileRequest(int *client, FILE * file, uint8_t *buffer, uint32_t code, uint32_t size, uint32_t *index, uint32_t countMsg, TaskHandle_t task){
+	SdCardRequest request;
+	FatSdCardSpiCustomWriteState state;
+	ESP_LOGI("WriteFileSetupRequest", "open %p", file);
+	SetSdCardWriteFileRequest(&request, file, buffer, size, &state, task);
+	if((*index != countMsg - 1) && (state == FAT_SD_CARD_SPI_CUSTOM_WRITE_OK)){
+		(*index)++;
+		return pdFALSE;
 	}
+	WifiMessage *msg; 	
+	GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK);
+	msg->client = *client;
+	msg->length = 0;
+	switch(state){
+	case FAT_SD_CARD_SPI_CUSTOM_WRITE_OK:
+		msg->length += AddUlongToMessage(msg->buffer + msg->length, TOTAL_BLOCK_IN_IN_FILE, code);
+		SetSdCardCloseFileRequest(&request, file, task);
+		SetSdCardGetMemoryRequest(&request, &sdMemoryInfo.free, &sdMemoryInfo.used, &sdMemoryInfo.total, task);
+		msg->length += AddUlongToMessage(msg->buffer + msg->length, SD_CARD_USED, sdMemoryInfo.used);
+		
+		if(xSemaphoreTake(listMuxtex, portMAX_DELAY) == pdTRUE){
+			list.size++;
+			xSemaphoreGive(listMuxtex);
+		}
+		
+		break;
+	case FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_WRITE_FILE_ERROR:
+	case FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_PARTIAL_WRITE:
+		SetSdCardCloseFileRequest(&request, file, task);
+	case FAT_SD_CARD_SPI_CUSTOM_WRITE_FAIL_CAUSE_OPEN_FILE_FAIL:
+		msg->length += AddUlongToMessage(msg->buffer + msg->length, WRITE_FILE_ERROR, state);
+		break;	
+	default:
+		break;
+	}
+	PushQueueWifiMessageMsgReady(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
+	return pdTRUE;
 }
 
-void ReadListFileRequest(ClientRequestInformation *clientRequest){
+uint32_t WriteFileSetupRequest(int *client, FILE **file, char* name, uint32_t size, TaskHandle_t task){
+	char path[SIZE_NAME];
+	char mode[] = "w+";
+	memcpy(path, PATH_DIR_IMAGE_RAW, strlen(PATH_DIR_IMAGE_RAW));
 	if(xSemaphoreTake(listMuxtex, portMAX_DELAY) == pdTRUE){
-		ReadListFileInImageRawFolder(clientRequest, &list);
+		FindAndSwapNameFile(name, &list);
 		xSemaphoreGive(listMuxtex);
 	}
+	memcpy(path + strlen(PATH_DIR_IMAGE_RAW), name, size);
+	path[strlen(PATH_DIR_IMAGE_RAW) + size] = '\0'; 
+	SdCardRequest request;
+	SetSdCardOpenFileRequest(&request, path, mode, task);
+	*file = request.openField.file; 
+	if(request.openField.file == NULL){
+		ESP_LOGE("WriteFileSetupRequest", "open fail");
+		return 0;
+	} else
+		ESP_LOGI("WriteFileSetupRequest", "open %p", request.openField.file);
+	//uint32_t codeMsg =  esp_random();
+	uint32_t codeMsg = 10;
+	WifiMessage *msg;
+	GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK);
+	msg->client = *client;
+	msg->length = AddUlongToMessage(msg->buffer, WRITE_BLOCK_SETUP_DONE, codeMsg);
+	PushQueueWifiMessageMsgReady(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
+	ESP_LOGI("WriteFileSetupRequest", "%s", path);
+	ESP_LOGI("WriteFileSetupRequest", "%llu", (unsigned long long) codeMsg);
+	return codeMsg;
 }
 
-void SetDoneHandleRequestClineInfomation(ClientRequestInformation *clientRequest){
-	clientRequest->clientState = DONE_CLIENT_REQUEST;
+void ReadSdCardTotalRequest(int *client){
+	WifiMessage *msg;
+	GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK);
+	msg->client = *client;
+	msg->length = AddUlongToMessage(msg->buffer, SD_CARD_TOTAL, sdMemoryInfo.total);
+	PushQueueWifiMessageMsgReady(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
 }
-void ReadFileInFolder(ClientRequestInformation *clientRequest){
-	if(clientRequest->block == 0)
-		clientRequest->file = fopen((const char*)clientRequest->f.path, "rb");
+
+void ReadSdCardUsedRequest(int *client){
+	WifiMessage *msg;
+	GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK);
+	msg->client = *client;
+	msg->length = AddUlongToMessage(msg->buffer, SD_CARD_USED, sdMemoryInfo.used);
+	PushQueueWifiMessageMsgReady(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
+}
+
+void ReadFileRequest(int *client, uint8_t *name, uint32_t size, TaskHandle_t task){
+	char path[SIZE_NAME];
+	char mode[] = "rb";
+	memcpy(path, PATH_DIR_IMAGE_RAW, strlen(PATH_DIR_IMAGE_RAW));
+	memcpy(path + strlen(PATH_DIR_IMAGE_RAW), name, size);
+	path[strlen(PATH_DIR_IMAGE_RAW) + size] = '\0'; 
+	uint32_t code = esp_random();
+	uint32_t block = 0;
 	WifiMessage *msg;
 	if(GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK) == pdTRUE){
-		msg->client = clientRequest->mSocket;
-		FatSdCardSpiCustomCopyState sdCardCopyState  = CopySdCardSpiFile(clientRequest->file, msg->buffer + HEADER_WIFI_MESSAGE, BYTE_IN_FRAME);
-		switch (sdCardCopyState){
+		uint32_t size = AddUlongToMessage(msg->buffer, READ_FILE_SETUP_DONE, code);
+		msg->length = size;
+		msg->client = *client;
+		PushQueueWifiMessageMsgReady(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
+	}
+	SdCardRequest request;
+	SetSdCardOpenFileRequest(&request, path, mode, task);
+	if(request.openField.file == NULL)
+		return;
+	FatSdCardSpiCustomCopyState state = FAT_SD_CARD_SPI_CUSTOM_COPY_OK;
+	FILE *file = request.openField.file;
+	while(state == FAT_SD_CARD_SPI_CUSTOM_COPY_OK){
+		GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK);
+		msg->client = *client;
+		msg->length = HEADER_WIFI_MESSAGE + CONTENT_FIELD_MESSAGE_START;
+		SetSdCardReadFileRequest(&request, file, msg->buffer + msg->length, BYTE_IN_FRAME, &state, task);
+		switch (state){
 			case FAT_SD_CARD_SPI_CUSTOM_COPY_OK:
-				msg->length = HEADER_WIFI_MESSAGE + BYTE_IN_FRAME;
-				clientRequest->block = clientRequest->block + 1;
-				AddUlongToMessage(msg->buffer, BLOCK_FILE, clientRequest->block);
+				msg->length += BYTE_IN_FRAME;
+				block++;
+				AddUlongToMessage(msg->buffer, BLOCK_FILE, block);
+				AddHeaderFieldMessage(msg->buffer + HEADER_WIFI_MESSAGE, BYTE_CONTENT, BYTE_IN_FRAME);
+				ESP_LOGI("msg block", "msg block = %llu, %llu", (unsigned long long) block, (unsigned long long) msg->length);
 				break;
 			case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_READ_FILE_ERROR:
 			case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_OPEN_FILE_FAIL:
+				AddUlongToMessage(msg->buffer, READ_FILE_ERROR, block);
 				msg->length = HEADER_WIFI_MESSAGE;
-				AddUlongToMessage(msg->buffer, READ_FILE_ERROR, clientRequest->block);
-				SetDoneHandleRequestClineInfomation(clientRequest);
-				fclose(clientRequest->file);
+				ESP_LOGI("msg error", "msg error, %llu byte", (unsigned long long) msg->length);
+				SetSdCardCloseFileRequest(&request, file, task);
 				break;
 			case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_FILE_END:
+				AddUlongToMessage(msg->buffer, TOTAL_BLOCK_IN_IN_FILE, block);
 				msg->length = HEADER_WIFI_MESSAGE;
-				//printf("%llu\n", (unsigned long long)clientRequest->block);
-				AddUlongToMessage(msg->buffer, TOTAL_BLOCK_IN_IN_FILE, clientRequest->block);
-				SetDoneHandleRequestClineInfomation(clientRequest);
-				fclose(clientRequest->file);
+				ESP_LOGI("msg end", "msg end = %llu", (unsigned long long) block);
+				SetSdCardCloseFileRequest(&request, file, task);
 				break;
 		}
 		PushQueueWifiMessageMsgReady(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
 	}
+	ESP_LOGI("msg count", "msg count = %llu", (unsigned long long) block);
 }
 
-void ReadListFileInImageRawFolder(ClientRequestInformation *clientRequest, DirentLinkerList *list){
-	ESP_LOGE("test", "read list");
+void ReadListFileInImageRawFolder(int *client, DirentLinkerList *list){
 	WifiMessage *msg;
 	if(GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK) == pdTRUE){
-		msg->client = clientRequest->mSocket;
-		uint32_t length = AddUlongToMessage((uint8_t*)msg->buffer, LIST_FILE_IN_DIRECTORY_IMAGE_RAW_FOLDER, list->size);
+		msg->client = *client;
+		msg->length = AddUlongToMessage((uint8_t*)msg->buffer, LIST_FILE_IN_DIRECTORY_IMAGE_RAW_FOLDER, list->size);
 		if(list->size != 0){
-			length += AddListToMessage((uint8_t*)msg->buffer + length, NAME_FILE_IN_LIST, list);
+			msg->length += AddListToMessage((uint8_t*)msg->buffer + msg->length, NAME_FILE_IN_LIST, list);
 		}
-		msg->length = length;
 		PushQueueWifiMessageMsgReady(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
-		SetDoneHandleRequestClineInfomation(clientRequest);
 	}
 }
 
 void SetupParameter(){
+	queueSdCardRequest = xQueueCreate(QUEUE_SD_CARD_REQUEST_LENGTH, sizeof(SdCardRequest*));
 	fps = FPS_DEFAULT;
-	FileInfomationInit(&mClientRequestInformation.f, LIST_BUFFER_SIZE);
-	SetDoneHandleRequestClineInfomation(&mClientRequestInformation);
 }
 
 void SemaphoreInit(){
 	listMuxtex = xSemaphoreCreateMutex();
-	clientRequestMutex = xSemaphoreCreateMutex();
-	sdMemoryInfoMutex = xSemaphoreCreateMutex();
 }
 
 //-------------------------------------------------------------------------------------------------------------------/
@@ -493,7 +559,6 @@ void TcpServerConfig(){
 	TcpCustomSetId(HEADER_CODE);
 	QueueWifiMessageInit(&queueMsgReceive, QUEUE_MESSAGE_WIFI_LENGTH, WIFI_MESSAGE_QUEUE_BUFFER_SIZE);
 	QueueWifiMessageInit(&queueMsgSend, QUEUE_MESSAGE_WIFI_LENGTH, WIFI_MESSAGE_QUEUE_BUFFER_SIZE);
-	QueueImageRawInit(&wifiImageRaw, QUEUE_MESSAGE_WIFI_LENGTH, LEDPANEL_WIDTH, LEDPANEL_HEIGTH);
 }
 
 void WifiConfig(){
@@ -520,32 +585,6 @@ void WifiConfig(){
     WifiCustomInit(&config, WIFI_NETWORK_PART, WIFI_SUBNET_PART, WIFI_SUBNET, WIFI_HOST_ID);
 }
 
-void RequestReadFileAndPushInQueueImageRaw(FILE *file, uint32_t size, char *path, DirentLinkerList *list){
-	ImageRaw *raw;
-	if(GetQueueImageRawFree(&ledPanelImageRaw, &raw, DMA_MANAGER_TIME_NO_BLOCK) == pdTRUE){
-		FatSdCardSpiCustomCopyState sdCardCopyState  = CopySdCardSpiFile(file, raw->buffer, size);
-		switch (sdCardCopyState) {
-			case FAT_SD_CARD_SPI_CUSTOM_COPY_OK: 
-				PushQueueImageRawReady(&ledPanelImageRaw, raw, DMA_MANAGER_TIME_NO_BLOCK);
-				break;
-			case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_OPEN_FILE_FAIL:
-				vTaskDelete(NULL);
-				break;
-			case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_READ_FILE_ERROR:
-				vTaskDelete(NULL);
-				break;
-			case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_FILE_END:
-				if(file != NULL){
-					fclose(file);
-					file = NULL;
-				}
-				RandomImageRawName(path, list);
-				file = fopen(path, "rb");
-				PushQueueImageRawFree(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
-				break;
-		}
-	}
-}
 
 RandomImageRawNameState RandomImageRawName(char *path, DirentLinkerList *list){
 	if(list->size == 0)
@@ -579,7 +618,6 @@ void FatSdCardSpiCustomConfigInit(FatSdCardSpiCustomConfig *config, SdCardMemory
    	config->host.max_freq_khz = SD_CARD_FREQ;
     FatSdCardSpiCustomInit(config);
     GetSdCardInfo(&info->total, &info->free, &info->used);
-    
 }
 
 void LedPanelConfigInit(LedPanelConfig *config){
@@ -613,9 +651,10 @@ void LedPanelConfigInit(LedPanelConfig *config){
                          &ledPanelConfig.style, 
                          &ledPanelImageRaw.config, 
                          raw);
-     PushQueueImageRawFree(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
-     LedPanelStartTransmit(&ledPanelConfig, gdma);
-     DirentLinkerListInit(&list, LIST_SIZE, LIST_BUFFER_SIZE);
+	PushQueueImageRawFree(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
+	LedPanelStartTransmit(&ledPanelConfig, gdma);
+	DirentLinkerListInit(&list, LIST_SIZE, LIST_BUFFER_SIZE);
+	GetListFileSdCardSPI(PATH_DIR_IMAGE_RAW, &list);
 }
 
 
@@ -628,10 +667,12 @@ void LedPanelTask(void *pvParameters){
 		GetDmaDescriptorReady(&gdma, DMA_MANAGER_TIME_BLOCK);
 		LedPanelRestart(&ledPanelConfig, gdma);
 		end = esp_timer_get_time();
-		int64_t timeSetup = end - start;
-		//ESP_LOGE("ledPanel", "Time: %lld us\n", timeSetup);
-		if(SECOND_UINT/fps > timeSetup)
+		int64_t timeSetup = (end - start) / SECOND_UINT;
+		//ESP_LOGE("ledPanel", "Time: %lld ms", timeSetup);
+		if(SECOND_UINT/fps > timeSetup){
+			ESP_LOGI("Delay", "%llu", SECOND_UINT/fps - timeSetup);
 			vTaskDelay(pdMS_TO_TICKS(SECOND_UINT/fps - timeSetup));
+		}
 	}
 }
 
@@ -714,11 +755,128 @@ void TcpServerReceiveTask(void *pvParameter){
 	}
 }
 
+void LedPanelImageRawReadTask(void *pvParameters){
+	TaskHandle_t task = xTaskGetCurrentTaskHandle();
+	SdCardRequest request;
+	ImageRaw *raw;
+	FatSdCardSpiCustomCopyState state;
+	char path[SIZE_NAME];
+	char mode[] = "rb";
+	FILE *file = NULL; 
+	while(1){
+		if(GetQueueImageRawFree(&ledPanelImageRaw, &raw, IMAGE_RAW_BLOCK) == pdTRUE){
+			if(file == NULL){
+				if(xSemaphoreTake(listMuxtex, portMAX_DELAY) == pdTRUE){
+					RandomImageRawName(path, &list);
+					xSemaphoreGive(listMuxtex);
+				}
+				SetSdCardOpenFileRequest(&request, path, mode, task);
+				file = request.openField.file;
+				if(file == NULL){
+					PushQueueImageRawFree(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
+					vTaskDelete(NULL);
+				}
+					
+			}
+			SetSdCardReadFileRequest(&request, file, raw->buffer, BYTE_IN_FRAME, &state, task);
+			switch (state) {
+				case FAT_SD_CARD_SPI_CUSTOM_COPY_OK: 
+					PushQueueImageRawReady(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
+					raw = NULL;
+					break;
+				case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_OPEN_FILE_FAIL:
+					vTaskDelete(NULL);
+					break;
+				case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_READ_FILE_ERROR:
+					vTaskDelete(NULL);
+					break;
+				case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_FILE_END:
+					if(file != NULL){
+						SetSdCardCloseFileRequest(&request, file, task);
+						file = NULL;
+					}
+					PushQueueImageRawFree(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
+					break;
+			}
+		}
+	}
+}
+
+void SdCardSpiTask(void *pvParameters){
+	SdCardRequest *request;
+	TaskHandle_t task;
+	while (1) {
+		if(xQueueReceive(queueSdCardRequest, &request, portMAX_DELAY) == pdTRUE){
+			switch (request->type) {
+				case SD_CARD_OPEN_FILE_REQUEST:
+					request->openField.file = fopen(request->openField.path, request->openField.type);
+					ESP_LOGI("test", "open %s %s", request->openField.path, request->openField.type);
+					break;
+				case SD_CARD_READ_FILE_REQUEST:
+					*request->readField.result = CopySdCardSpiFile(request->readField.file, request->readField.buffer, request->readField.length);
+					break;
+				case SD_CARD_WRITE_FILE_REQUEST:
+					*request->writeField.result = WriteSdCardSpiFileOptimized(request->writeField.file, request->writeField.buffer, request->writeField.length);
+					break;
+				case SD_CARD_GET_LIST_FILE_REQUEST:
+					*request->getListFileField.result = GetListFileSdCardSPI(request->getListFileField.path, request->getListFileField.list);
+					break;
+				case SD_CARD_CLOSE_FILE_REQUEST:
+					fclose(request->closeField.file);
+					break;
+				case SD_CARD_GET_MEMORY_CARD_REQUEST:
+					GetSdCardInfo(request->memoryField.total, request->memoryField.free, request->memoryField.used);
+			}
+			task = request->taskRequest;
+			request = NULL;
+			xTaskNotifyGive(task);
+		}
+	}
+}
+
+void SetSdCardReadFileRequest(SdCardRequest *request, FILE *file, uint8_t *buffer, uint32_t length, FatSdCardSpiCustomCopyState *state, TaskHandle_t task){
+	request->type = SD_CARD_READ_FILE_REQUEST;
+	request->readField.file = file;
+	request->readField.result = state;
+	request->readField.buffer = buffer;
+	request->readField.length = BYTE_IN_FRAME;
+	request->taskRequest = task;
+	xQueueSend(queueSdCardRequest, &request, portMAX_DELAY);
+	ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+}
+
+void SetSdCardCloseFileRequest(SdCardRequest *request, FILE *file, TaskHandle_t task){
+	request->type = SD_CARD_CLOSE_FILE_REQUEST;
+	request->closeField.file = file;
+	request->taskRequest = task;
+	xQueueSend(queueSdCardRequest, &request, portMAX_DELAY);
+	ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+}
+
+void SetSdCardOpenFileRequest(SdCardRequest *request, char *path, char* mode, TaskHandle_t task){
+	request->type = SD_CARD_OPEN_FILE_REQUEST;
+	request->openField.path = path;
+	request->openField.type = mode;
+	request->taskRequest = task;
+	xQueueSend(queueSdCardRequest, &request, portMAX_DELAY);
+	ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+}
+
+
 void CreateTask(){
+	xTaskCreatePinnedToCore(
+        LedPanelImageRawReadTask,
+        "LedPanelImageRawReadTask",
+        3072,
+        NULL,
+        FREE_RTOS_PRIORITY_LOW,
+        NULL,
+        CORE_1
+    );
 	xTaskCreatePinnedToCore(
         LedPanelTask,
         "LedPanelTask",
-        2560,
+        3072,
         NULL,
         FREE_RTOS_PRIORITY_REAL_TIME,
         NULL,
@@ -727,7 +885,7 @@ void CreateTask(){
     xTaskCreatePinnedToCore(
         CoverntImageToVectorGdmadescriptorsNodeTask,
         "CoverntImageToVectorGdmadescriptorsNodeTask",
-        2560,
+        3072,
         NULL,
         FREE_RTOS_PRIORITY_LOW,
         NULL,
@@ -742,7 +900,6 @@ void CreateTask(){
         NULL,
         CORE_1
     );
-    /*
 	xTaskCreatePinnedToCore(
         TcpServerReceiveTask,
         "TcpServerReceiveTask",
@@ -770,5 +927,5 @@ void CreateTask(){
         NULL,
         CORE_1
     );
-    */
+    
 }

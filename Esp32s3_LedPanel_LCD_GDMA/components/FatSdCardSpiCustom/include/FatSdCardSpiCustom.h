@@ -35,7 +35,7 @@ typedef enum{
 typedef enum{
 	FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_OK,
 	FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_FAIL_CAUSE_OPEN_DERECTORY_FAIL
-} FasrSdCardSpiCustomReadListFileState;
+} FatSdCardSpiCustomReadListFileState;
 
 typedef enum{
 	FILE_INFOMATION_NAME_EMPTY,
@@ -61,7 +61,7 @@ void GetSdCardInfo(uint64_t *total, uint64_t *free, uint64_t *used);
 void SetFileInfomationEmty(FileInfomation *fileInformation);
 FileInfomationNameState FileInfomationNameCheck(FileInfomation *fileInformation);
 void FileInfomationInit(FileInfomation *fileInformation, uint32_t size);
-FasrSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLinkerList *list);
+FatSdCardSpiCustomReadListFileState GetListFileSdCardSPI(char path[], DirentLinkerList *list);
 FatSdCardSpiCustomWriteState WriteSdCardSpiFileOptimized(FILE *file, uint8_t *buffer, uint32_t size);
 FatSdCardSpiCustomCopyState CopySdCardSpiFile(FILE *file, uint8_t *buffer, uint32_t size);
 esp_err_t FatSdCardSpiCustomInit(FatSdCardSpiCustomConfig *config);

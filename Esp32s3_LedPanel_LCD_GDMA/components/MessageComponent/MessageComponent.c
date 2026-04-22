@@ -52,6 +52,7 @@ uint32_t AddUlongToMessage(uint8_t *buffer, uint32_t code, uint32_t value){
 	return length;
 }
 
+
 uint32_t AddStringToMessage(uint8_t *buffer, uint32_t code, char *path){
 	uint32_t length = strlen(path);
 	AddHeaderFieldMessage(buffer, code, length);
