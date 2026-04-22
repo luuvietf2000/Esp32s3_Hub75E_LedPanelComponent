@@ -33,7 +33,10 @@
 https://github.com/user-attachments/assets/e3c6ad03-30ee-4e8b-a476-457aa0f4e459
 
 ## System Architecture
-- SD Card → PSRAM Queue Image Raw → Render Queue → GDMA Descriptor → LCD_CAM → LED Panel
+<p align="center">
+    <img src="include/image/task.svg" width="800"><br>
+    <em>Fig 0. System Architecture</em>
+</p>
 
 ## Hardware Requirements
 - ESP32S3 N16R8 (Or ESP32-S3 with PSRAM) 
