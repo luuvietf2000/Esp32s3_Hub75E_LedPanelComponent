@@ -179,7 +179,8 @@ void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *
 	uint32_t r1, b1, g1, r2, g2, b2;
 	uint8_t *p1, *p2;
 	uint32_t indexRowUp, indexRowDown;
-	
+	const uint32_t rowSide = heigth / style->scan;
+	uint32_t rowCurrentAddress;
 	for(uint16_t bit = 0; bit < color; bit++){
 		for(uint16_t row = 0; row < heigth / 2; row++){
 			bufferDestination = (uint16_t*)vector->head[frame].DW1;
@@ -193,9 +194,10 @@ void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *
 				bitColor = bit;
 			}
 			addressAfterConvert = *(addressByteCode + beforRowAddress);
+			rowCurrentAddress = *(addressByteCode + row);
 			AddSignalOutputEnableLedPanel(bufferDestination, OE_CLOCK_CYCLES_START, addressAfterConvert);
 			indexRowUp = row * width;
-			indexRowDown = (row + 32) * width;
+			indexRowDown = (row + rowSide) * width;
 			for(uint32_t phase = 0; phase < OE_CLOCK_CYCLES - OE_CLOCK_PHASE_1; phase++)
 				AddSignalClkLedPanel(bufferDestination, OE_CLOCK_CYCLES_START + OE_CLOCK_PHASE_1 + phase, 0x00, addressAfterConvert, bitColor);
 			for(uint16_t column = 0; column < width; column ++){
@@ -213,8 +215,8 @@ void LedPanelConvertFrameData(VectorGdmaDescriptorsNode *vector, LedPanelStyle *
 				colorAfterConvert = r1 | g1 | b1 | r2 | g2 | b2;
 				AddSignalClkLedPanel(bufferDestination, column + OE_CLOCK_CYCLES, colorAfterConvert, addressAfterConvert, bitColor); 
 			}
-			AddSignalLatchLedPanel(bufferDestination, OE_CLOCK_CYCLES + width - LATCH_CLOCK_CYCLES, colorAfterConvert, addressAfterConvert);
-				frame++;
+			AddSignalLatchLedPanel(bufferDestination, OE_CLOCK_CYCLES + width - LATCH_CLOCK_CYCLES, colorAfterConvert, rowCurrentAddress);
+			frame++;
 		}
 	}
 }

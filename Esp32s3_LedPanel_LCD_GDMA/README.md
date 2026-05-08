@@ -8,12 +8,32 @@
 ## Table of Contents
 - Features
 - Demo
-- System Architecture
-- Memory Calculation
+- Software Architecture
 - Hardware Requirements
+	- ESP32S3 N16R8
+	- LED Panel with ICN2037
+	- SD Card SPI Module
+- Memory & Pointer Management
+	- Pointer Pool & Queue Management Strategy
+	- GDMA Queue Special Case
+- Memory Calculation
+	- DMA Descriptor Memory Calculation
+	- Display Timing Recommendation
+	- Data Bus Width
+	- Row Scanning Mechanism
+	- Memory Allocation Limitation
 - Image Transmission Timing
-- Image Raw Queue
-- Gamma Correction
+- Render Queue
+	- DMA-Based Frame Switching
+- Raw Image Queue
+- Color Balance and Gamma Correction
+	- Color Balance
+	- Gamma Correction
+	- High-Performance Rendering
+- SD Card Driver
+- TCP Communication Mechanism
+	- TCP Message Format
+	- TCP Receive & Send Mechanism
 - Limitations
 - Future Improvements
 
@@ -32,7 +52,9 @@
 ## Demo
 https://github.com/user-attachments/assets/e3c6ad03-30ee-4e8b-a476-457aa0f4e459
 
-## System Architecture
+https://github.com/user-attachments/assets/161aafa3-2a8c-4b6b-b424-666d57f08245
+
+## Software Architecture
 <p align="center">
     <img src="include/image/task.svg" width="800"><br>
     <em>Fig 0. System Architecture</em>

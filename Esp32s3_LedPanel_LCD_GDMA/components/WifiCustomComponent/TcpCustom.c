@@ -116,7 +116,7 @@ TcpCustomAcceptState TcpCustomAccept(int *server, struct sockaddr_storage  *clie
 void TcpCustomSetTimeoutReadPacket(int *clientSocket){
 	struct timeval timeout;
 	timeout.tv_sec = 0;
-	timeout.tv_usec = 20000; // 20ms
+	timeout.tv_usec = 20000;
 	
 	setsockopt(*clientSocket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 }

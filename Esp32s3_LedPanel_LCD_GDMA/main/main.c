@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sys/_types.h>
 #include <unistd.h>
 #include "DirentLinkerListComponent.h"
 #include "DmascriporsManager.h"
@@ -14,6 +15,7 @@
 #include "TcpCustom.h"
 #include "WifiCustomComponent.h"
 #include "driver/spi_common.h"
+#include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -27,7 +29,6 @@
 #include "soc/gpio_num.h"
 #include "FatSdCardSpiCustom.h"
 #include "esp_random.h"
-
 #define LEDPANEL_WIDTH 																128
 #define LEDPANEL_HEIGTH 															64
 
@@ -56,7 +57,7 @@
 #define WIFI_MESSAGE_QUEUE_BUFFER_SIZE												(HEADER_WIFI_MESSAGE + BYTE_IN_FRAME) + UINT_WIFI_MESSAFE_HEADER_MAX
 #define UINT_WIFI_MESSAFE_HEADER_MAX												500
 #define BYTE_IN_FRAME																(LEDPANEL_WIDTH * LEDPANEL_HEIGTH * HUB75E_LUT_COLOR)		
-#define SD_CARD_FREQ																4000
+#define SD_CARD_FREQ																SDMMC_FREQ_HIGHSPEED
 #define MSG_WIFI_ID																	0x99
 //-------------------------------------------------------------------------------/
 #define QUEUE_SD_CARD_REQUEST_LENGTH												10
@@ -65,7 +66,7 @@
 #define PATH_DIR_IMAGE_RAW															FAT_SD_CARD_SPI_CUSTOM_MOUSNT_PATH "/" DIRECTORY_NAME "/"
 #define SIZE_NAME																	256
 #define BUFFER_SIZE																	4096
-#define FPS_DEFAULT																	24
+#define FPS_DEFAULT																	1
 #define PORT																		1111
 #define WIFI_AP_SSID 																"ESP32_LED_PANEL_WIFI"
 #define WIFI_AP_PASS 																"12345678"
@@ -229,6 +230,8 @@ uint32_t fps;
 uint32_t timeLedPanelUpdate;
 int tcpServerSocket;
 //-------------------------------------------------------------------------------/
+void InitializeTcpServerSystem();
+void InitializeLedPanelSystem();
 void SetSdCardGetMemoryRequest(SdCardRequest *request, uint64_t *free, uint64_t *used, uint64_t *total, TaskHandle_t task);
 void ReadSdCardTotalRequest(int *client);
 void ReadSdCardUsedRequest(int *client);
@@ -261,23 +264,10 @@ void FindAndSwapNameFile(char *name, DirentLinkerList *list);
 void app_main(void)
 {
 	SetupParameter();
-	ESP_LOGI(TAG_APP_MAIN, APP_MAIN_INIT);
 	WifiConfig();
-	TcpServerConfig();
 	FatSdCardSpiCustomConfigInit(&sdCardConfig, &sdMemoryInfo);
-	LedPanelConfigInit(&ledPanelConfig);
 	SemaphoreInit();
-	CreateTask();
-	
-	size_t free_ram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-
-	ESP_LOGE("RAM", "Free internal RAM: %d bytes (~%d KB)", 
-         free_ram, free_ram / 1024);
-    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-
-	ESP_LOGE("RAM", "Largest block: %d bytes (~%d KB)", 
-         largest, largest / 1024);
-         
+    CreateTask();
 }
 
 //-------------------------------------------------------------------------------/
@@ -448,10 +438,8 @@ uint32_t WriteFileSetupRequest(int *client, FILE **file, char* name, uint32_t si
 	if(request.openField.file == NULL){
 		ESP_LOGE("WriteFileSetupRequest", "open fail");
 		return 0;
-	} else
-		ESP_LOGI("WriteFileSetupRequest", "open %p", request.openField.file);
-	//uint32_t codeMsg =  esp_random();
-	uint32_t codeMsg = 10;
+	}
+	uint32_t codeMsg =  esp_random();
 	WifiMessage *msg;
 	GetQueueWifiMessagePointerFree(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK);
 	msg->client = *client;
@@ -555,10 +543,23 @@ void SemaphoreInit(){
 //-------------------------------------------------------------------------------------------------------------------/
 
 void TcpServerConfig(){
-	TcpCustomInit(&tcpServerSocket, PORT);
+	TcpCustomInitState tcpInitState = TcpCustomInit(&tcpServerSocket, PORT);
+	if(tcpInitState != TCP_CUSTOM_INIT_OK){
+		ESP_LOGE("TcpServerConfig", "TcpCustomInitState Fail cause %d", tcpInitState);
+		vTaskDelete(NULL);
+	}
 	TcpCustomSetId(HEADER_CODE);
-	QueueWifiMessageInit(&queueMsgReceive, QUEUE_MESSAGE_WIFI_LENGTH, WIFI_MESSAGE_QUEUE_BUFFER_SIZE);
-	QueueWifiMessageInit(&queueMsgSend, QUEUE_MESSAGE_WIFI_LENGTH, WIFI_MESSAGE_QUEUE_BUFFER_SIZE);
+	QueueWifiMessageInitState queueReceiveInitState = QueueWifiMessageInit(&queueMsgReceive, QUEUE_MESSAGE_WIFI_LENGTH, WIFI_MESSAGE_QUEUE_BUFFER_SIZE);
+	if(queueReceiveInitState != QUEUE_WIFI_MESSAGE_INIT_OK){
+		ESP_LOGE("TcpServerConfig", "QueueWifiMessageInitState Fail cause %d", queueReceiveInitState);
+		vTaskDelete(NULL);
+	}
+	QueueWifiMessageInitState queueSendInitState = QueueWifiMessageInit(&queueMsgSend, QUEUE_MESSAGE_WIFI_LENGTH, WIFI_MESSAGE_QUEUE_BUFFER_SIZE);
+	if(queueReceiveInitState != QUEUE_WIFI_MESSAGE_INIT_OK){
+		ESP_LOGE("TcpServerConfig", "queueSendInitState Fail cause %d", queueSendInitState);
+		vTaskDelete(NULL);
+	}
+	InitializeTcpServerSystem();
 }
 
 void WifiConfig(){
@@ -616,7 +617,20 @@ void FatSdCardSpiCustomConfigInit(FatSdCardSpiCustomConfig *config, SdCardMemory
     config->mountConfig = mount_config;
     config->channelDma = SPI_DMA_CH_AUTO;
    	config->host.max_freq_khz = SD_CARD_FREQ;
-    FatSdCardSpiCustomInit(config);
+    esp_err_t initState = FatSdCardSpiCustomInit(config);
+    if(initState != ESP_OK){
+    	ESP_LOGE("FatSdCardSpiCustomConfigInit", "FatSdCardSpiCustom init Fail cause %d", initState);
+    	return;
+    }
+    xTaskCreatePinnedToCore(
+        SdCardSpiTask,
+        "SdCardSpiTask",
+        3072,
+        NULL,
+        FREE_RTOS_PRIORITY_MEDIUM,
+        NULL,
+        CORE_1
+    );
     GetSdCardInfo(&info->total, &info->free, &info->used);
 }
 
@@ -637,8 +651,16 @@ void LedPanelConfigInit(LedPanelConfig *config){
 		 LEDPANEL_PIN_LATCH, LEDPANEL_PIN_OE, LEDPANEL_PIN_CLK
 	};
 	
-	LedPanelInit(config, ledPanelPin, QUEUE_GDMA_DESCRIPTORS_SIZE);
-	QueueImageRawInit(&ledPanelImageRaw, QUEUE_IMAGE_RAW_SIZE, LEDPANEL_WIDTH, LEDPANEL_HEIGTH);
+	LedPanelInitState ledInitState = LedPanelInit(config, ledPanelPin, QUEUE_GDMA_DESCRIPTORS_SIZE);
+	if(ledInitState != LED_PANEL_INIT_OK){
+		ESP_LOGE("LedPanelConfigInit", "Led Panel config fail cause %d", ledInitState);
+		vTaskDelete(NULL);
+	}
+	QueueImageInitEnum queueImageState = QueueImageRawInit(&ledPanelImageRaw, QUEUE_IMAGE_RAW_SIZE, LEDPANEL_WIDTH, LEDPANEL_HEIGTH);
+	if(queueImageState != QUEUE_IMAGE_RAW_INIT_OK){
+		ESP_LOGE("LedPanelConfigInit", "Queue Image init fail cause %d", queueImageState);
+		vTaskDelete(NULL);
+	}
 	ImageRaw *raw;
 	if(GetQueueImageRawFree(&ledPanelImageRaw, &raw, IMAGE_RAW_BLOCK) == pdTRUE){
 		for(uint32_t i = 0; i < BYTE_IN_FRAME; i++){
@@ -653,24 +675,29 @@ void LedPanelConfigInit(LedPanelConfig *config){
                          raw);
 	PushQueueImageRawFree(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
 	LedPanelStartTransmit(&ledPanelConfig, gdma);
-	DirentLinkerListInit(&list, LIST_SIZE, LIST_BUFFER_SIZE);
-	GetListFileSdCardSPI(PATH_DIR_IMAGE_RAW, &list);
+	if(DirentLinkerListInit(&list, LIST_SIZE, LIST_BUFFER_SIZE)!= pdTRUE){
+		ESP_LOGE("LedPanelConfigInit", "Dirent Linker List Init Fail");
+		vTaskDelete(NULL);
+	}
+	if(GetListFileSdCardSPI(PATH_DIR_IMAGE_RAW, &list) != FAT_SD_CARD_SPI_CUSTOM_READ_LIST_FILE_OK){
+		ESP_LOGE("LedPanelConfigInit", "Open folder Image Raw fail cause OPEN DERECTORY FAIL");
+		vTaskDelete(NULL);
+	}
 }
 
 
 void LedPanelTask(void *pvParameters){
 	VectorGdmaDescriptorsNode *gdma = NULL;
 	int64_t start, end;
-
+	LedPanelConfigInit(&ledPanelConfig);
+	InitializeLedPanelSystem();
 	while (1) {
 		start = esp_timer_get_time();
 		GetDmaDescriptorReady(&gdma, DMA_MANAGER_TIME_BLOCK);
 		LedPanelRestart(&ledPanelConfig, gdma);
 		end = esp_timer_get_time();
 		int64_t timeSetup = (end - start) / SECOND_UINT;
-		//ESP_LOGE("ledPanel", "Time: %lld ms", timeSetup);
 		if(SECOND_UINT/fps > timeSetup){
-			ESP_LOGI("Delay", "%llu", SECOND_UINT/fps - timeSetup);
 			vTaskDelay(pdMS_TO_TICKS(SECOND_UINT/fps - timeSetup));
 		}
 	}
@@ -689,12 +716,10 @@ void CoverntImageToVectorGdmadescriptorsNodeTask(void *pvParameters){
 	    }
 
 		if (gdma != NULL && raw != NULL) {
-		
 		    LedPanelConvertFrameData(gdma, 
 		                             &ledPanelConfig.style, 
 		                             &ledPanelImageRaw.config, 
 		                             raw);
-		
 		    PushDmaDescriptorReady(gdma, DMA_MANAGER_TIME_BLOCK);
 		    PushQueueImageRawFree(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
 		
@@ -708,7 +733,6 @@ void TcpServerSendTask(void* pvParameter){
 	WifiMessage *msg;
 	while(1){
 		if(GetQueueWifiMessageMsgReady(&queueMsgSend, &msg, QUEUE_MESSAGE_WIFI_BLOCK) == pdTRUE){
-			ESP_LOGE("Test", "send msg");
 			TcpCustomSendMessage(msg);
 			PushQueueWifiMessagePointerFree(&queueMsgSend, msg, QUEUE_MESSAGE_WIFI_BLOCK);
 		}
@@ -725,6 +749,7 @@ void TcpServerReceiveTask(void *pvParameter){
     int keepCount = KEEPALIVE_COUNT;
     WifiMessage *msg = NULL;
     TcpClientReceiveStateEnum state;
+    TcpServerConfig();
 	while(1){
 		TcpCustomAccept(&tcpServerSocket, &sourceAddr, &addrLen, &clientSocket);
 		if(clientSocket < 0){
@@ -735,17 +760,14 @@ void TcpServerReceiveTask(void *pvParameter){
 		
 		while(1){
 			if(GetQueueWifiMessagePointerFree(&queueMsgReceive, &msg, QUEUE_MESSAGE_WIFI_BLOCK) == pdTRUE){
-				ESP_LOGE("Test", "wait msg");
 			    state = TcpCustomReceiveMsg(clientSocket, msg);
 			    if (state == TCP_SERVER_RECEIVE_MSG_OK) {
 					msg->client = clientSocket;
 			        PushQueueWifiMessageMsgReady(&queueMsgReceive, msg, QUEUE_MESSAGE_WIFI_BLOCK);
-			        ESP_LOGE("Test", "receive msg");
 			        continue;
 			    }
 			    PushQueueWifiMessagePointerFree(&queueMsgReceive, msg, QUEUE_MESSAGE_WIFI_BLOCK);
 			    if (state == TCP_CLIENT_DISCONNECT || state == TCP_CLIENT_TIMEOUT){
-			    	ESP_LOGE("Test", "msg invalid");
 			        break;
 			     }
 				
@@ -782,15 +804,18 @@ void LedPanelImageRawReadTask(void *pvParameters){
 			switch (state) {
 				case FAT_SD_CARD_SPI_CUSTOM_COPY_OK: 
 					PushQueueImageRawReady(&ledPanelImageRaw, raw, IMAGE_RAW_BLOCK);
-					raw = NULL;
 					break;
 				case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_OPEN_FILE_FAIL:
+					ESP_LOGE("read error", "delete task");
 					vTaskDelete(NULL);
 					break;
 				case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_READ_FILE_ERROR:
+					ESP_LOGE("read error", "delete task");
 					vTaskDelete(NULL);
 					break;
 				case FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_FILE_END:
+
+					ESP_LOGI("read", "file: %p", file);
 					if(file != NULL){
 						SetSdCardCloseFileRequest(&request, file, task);
 						file = NULL;
@@ -807,29 +832,46 @@ void SdCardSpiTask(void *pvParameters){
 	TaskHandle_t task;
 	while (1) {
 		if(xQueueReceive(queueSdCardRequest, &request, portMAX_DELAY) == pdTRUE){
-			switch (request->type) {
-				case SD_CARD_OPEN_FILE_REQUEST:
-					request->openField.file = fopen(request->openField.path, request->openField.type);
-					ESP_LOGI("test", "open %s %s", request->openField.path, request->openField.type);
-					break;
-				case SD_CARD_READ_FILE_REQUEST:
-					*request->readField.result = CopySdCardSpiFile(request->readField.file, request->readField.buffer, request->readField.length);
-					break;
-				case SD_CARD_WRITE_FILE_REQUEST:
-					*request->writeField.result = WriteSdCardSpiFileOptimized(request->writeField.file, request->writeField.buffer, request->writeField.length);
-					break;
-				case SD_CARD_GET_LIST_FILE_REQUEST:
-					*request->getListFileField.result = GetListFileSdCardSPI(request->getListFileField.path, request->getListFileField.list);
-					break;
-				case SD_CARD_CLOSE_FILE_REQUEST:
-					fclose(request->closeField.file);
-					break;
-				case SD_CARD_GET_MEMORY_CARD_REQUEST:
-					GetSdCardInfo(request->memoryField.total, request->memoryField.free, request->memoryField.used);
-			}
-			task = request->taskRequest;
-			request = NULL;
-			xTaskNotifyGive(task);
+		    switch (request->type) {
+		        case SD_CARD_OPEN_FILE_REQUEST:
+		            request->openField.file = fopen(request->openField.path,
+		                                            request->openField.type);
+		            break;
+		
+		        case SD_CARD_READ_FILE_REQUEST:
+		            *request->readField.result =
+		                CopySdCardSpiFile(request->readField.file,
+		                                  request->readField.buffer,
+		                                  request->readField.length);
+		            break;
+		
+		        case SD_CARD_WRITE_FILE_REQUEST:
+		            *request->writeField.result =
+		                WriteSdCardSpiFileOptimized(request->writeField.file,
+		                                            request->writeField.buffer,
+		                                            request->writeField.length);
+		            break;
+		
+		        case SD_CARD_GET_LIST_FILE_REQUEST:
+		            *request->getListFileField.result =
+		                GetListFileSdCardSPI(request->getListFileField.path,
+		                                     request->getListFileField.list);
+		            break;
+		
+		        case SD_CARD_CLOSE_FILE_REQUEST:
+		            fclose(request->closeField.file);
+		            break;
+		
+		        case SD_CARD_GET_MEMORY_CARD_REQUEST:
+		            GetSdCardInfo(request->memoryField.total,
+		                          request->memoryField.free,
+		                          request->memoryField.used);
+		            break;
+		    }
+		
+		    task = request->taskRequest;
+		    request = NULL;
+		    xTaskNotifyGive(task);
 		}
 	}
 }
@@ -839,7 +881,7 @@ void SetSdCardReadFileRequest(SdCardRequest *request, FILE *file, uint8_t *buffe
 	request->readField.file = file;
 	request->readField.result = state;
 	request->readField.buffer = buffer;
-	request->readField.length = BYTE_IN_FRAME;
+	request->readField.length = length;
 	request->taskRequest = task;
 	xQueueSend(queueSdCardRequest, &request, portMAX_DELAY);
 	ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -862,27 +904,8 @@ void SetSdCardOpenFileRequest(SdCardRequest *request, char *path, char* mode, Ta
 	ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 }
 
-
-void CreateTask(){
+void InitializeLedPanelSystem(){
 	xTaskCreatePinnedToCore(
-        LedPanelImageRawReadTask,
-        "LedPanelImageRawReadTask",
-        3072,
-        NULL,
-        FREE_RTOS_PRIORITY_LOW,
-        NULL,
-        CORE_1
-    );
-	xTaskCreatePinnedToCore(
-        LedPanelTask,
-        "LedPanelTask",
-        3072,
-        NULL,
-        FREE_RTOS_PRIORITY_REAL_TIME,
-        NULL,
-        CORE_1
-    );
-    xTaskCreatePinnedToCore(
         CoverntImageToVectorGdmadescriptorsNodeTask,
         "CoverntImageToVectorGdmadescriptorsNodeTask",
         3072,
@@ -892,24 +915,18 @@ void CreateTask(){
         CORE_0
     );
     xTaskCreatePinnedToCore(
-        SdCardSpiTask,
-        "SdCardSpiTask",
+        LedPanelImageRawReadTask,
+        "LedPanelImageRawReadTask",
         3072,
         NULL,
-        FREE_RTOS_PRIORITY_MEDIUM,
+        FREE_RTOS_PRIORITY_LOW,
         NULL,
         CORE_1
     );
+}
+
+void InitializeTcpServerSystem(){
 	xTaskCreatePinnedToCore(
-        TcpServerReceiveTask,
-        "TcpServerReceiveTask",
-        3072,
-        NULL,
-        FREE_RTOS_PRIORITY_REAL_TIME,
-        NULL,
-        CORE_0
-    );
-    xTaskCreatePinnedToCore(
         TcpServerSendTask,
         "TcpServerSendTask",
         3072,
@@ -927,5 +944,25 @@ void CreateTask(){
         NULL,
         CORE_1
     );
-    
+}
+
+void CreateTask(){
+	xTaskCreatePinnedToCore(
+        LedPanelTask,
+        "LedPanelTask",
+        3072,
+        NULL,
+        FREE_RTOS_PRIORITY_REAL_TIME,
+        NULL,
+        CORE_1
+    );
+	xTaskCreatePinnedToCore(
+        TcpServerReceiveTask,
+        "TcpServerReceiveTask",
+        3072,
+        NULL,
+        FREE_RTOS_PRIORITY_REAL_TIME,
+        NULL,
+        CORE_0
+    );
 }

@@ -38,9 +38,9 @@ void GetSdCardInfo(uint64_t *total, uint64_t *free, uint64_t *used) {
 	*free  = ((uint64_t) free_clusters  * fs->csize * 512) / (1024 * 1024);
     *used  = (uint64_t) *total - *free;
 
-    ESP_LOGI("SD", "Total: %llu MB", *total / (1024 * 1024));
-    ESP_LOGI("SD", "Free : %llu MB", *free  / (1024 * 1024));
-    ESP_LOGI("SD", "Used : %llu MB", *used  / (1024 * 1024));
+    ESP_LOGI("SD", "Total: %llu MB", *total);
+    ESP_LOGI("SD", "Free : %llu MB", *free);
+    ESP_LOGI("SD", "Used : %llu MB", *used);
 }
 
 FatSdCardSpiCustomWriteState WriteSdCardSpiFileOptimized(FILE *file, uint8_t *buffer, uint32_t size){
@@ -126,7 +126,7 @@ FatSdCardSpiCustomCopyState CopySdCardSpiFile(FILE *file, uint8_t *buffer, uint3
 	
 	    if (readBytes == 0){
 			if(feof(file)){
-				//ESP_LOGI(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_END_FILE_CONTENT);
+				ESP_LOGI(TAG_FAT_SD_CARD_SPI_CUSTOM, FAT_SD_CARD_SPI_CUSTOM_END_FILE_CONTENT);
 				return FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_FILE_END;
 			} else if(ferror(file)){
 				ESP_LOGE(TAG_FAT_SD_CARD_SPI_CUSTOM, "FAT_SD_CARD_SPI_CUSTOM_COPY_FAIL_CAUSE_READ_FILE_ERROR");
